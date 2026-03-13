@@ -5,8 +5,8 @@ description: "Intelligent triage and assignment of Jira Change Management (CM) t
 # Serraview CloudOps Ticket Triage
 ## Jira API Configuration
 ```yaml
-Base URL: https://eptura.atlassian.net
-Auth: Basic (email: nipun.sahni@eptura.com, token: JIRA_API_TOKEN env var)
+Base URL: SV_JIRA_BASE_URL env var (https://eptura.atlassian.net)
+Auth: Basic (email: SV_JIRA_EMAIL env var, token: SV_JIRA_API_TOKEN env var)
 Transition ID for Approve: "31"
 Filter ID: 55922
 ```
