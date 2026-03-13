@@ -18,11 +18,13 @@ Check the `onLeave` parameter. Remove those members from the available assignee 
 ### Step 2: Query Current Workload
 Query open tickets for all team members via Jira REST API:
 ```
-project = CM AND assignee IN ("712020:e779f9ea-49c9-4573-8a3a-61a6264cd283", "639af1b47145571a7ea882d7", "6362e6fe59c794184bcc1a3e", "712020:b217ad2b-f35c-41e1-8ec5-73d5d58952d0", "712020:7f06dd3b-4d20-4e02-bb38-b3ff9ea66c64", "64238bb20152b5f4f9f2e7f9", "712020:4962c34a-ee1a-427c-aced-015675053cae", "62b8f3e8118b20bee2ba7228") AND status NOT IN (Done, Cancelled)
+project = CM AND assignee IN ("712020:e779f9ea-49c9-4573-8a3a-61a6264cd283", "639af1b47145571a7ea882d7", "6362e6fe59c794184bcc1a3e", "712020:b217ad2b-f35c-41e1-8ec5-73d5d58952d0", "712020:7f06dd3b-4d20-4e02-bb38-b3ff9ea66c64", "64238bb20152b5f4f9f2e7f9", "712020:4962c34a-ee1a-427c-aced-015675053cae", "62b8f3e8118b20bee2ba7228") AND status NOT IN (Done, Cancelled, "Under Observation")
 ```
 Count active tickets per person. Flag anyone at or over their `maxLoad`.
 ### Step 3: Fetch Tickets from Filter 55922
 Get all tickets from filter 55922 (Serraview_NewIssue_CM) via Jira REST API.
+**Pre-check - Under Observation**: If a ticket's current status is "Under Observation", skip it entirely. Add to Skipped section with reason "Under Observation — excluded from triage". Do NOT assign, transition, or label.
+
 **Bucket 1 - Already Assigned** (assignee IS NOT EMPTY):
 - DO NOT reassign
 - Call `transition_issue(issueKey, transitionId="31")` to move to Approved
@@ -86,6 +88,7 @@ Read `references/notifications.md` for webhook URL, recipients, and payload form
 - DB tasks restricted to Yuan Yang, Mridul Raina, and Deevanshu Gakhar only
 - CLAUTO/automation tickets go to Deevanshu Gakhar (primary) or Shobhit Mishra (secondary)
 - Respect incubation for Ankit Kumar Sinha (prioritize Critical/Exploratory over BAU)
+- Tickets in "Under Observation" status are skipped entirely (not assigned, transitioned, or labelled) and excluded from workload counts
 ## Example Invocation
 User: "Triage the unassigned tickets, Yuan Yang is on leave today"
 1. Exclude Yuan Yang from available assignees
