@@ -26,7 +26,7 @@ The `text` field is the primary display field — Power Automate renders this as
 ```json
 {
   "type": "triage_summary",
-  "text": "🔔 Serraview Triage Complete\n✅ Assigned: N | 🔄 Transitioned: N | 🏷️ Manual Triage: N | ❌ Errors: N\n\n[one line per ticket: CM-XXXXX — summary → assignee]",
+  "text": "🔔 Serraview Triage Complete — <date>\n\n✅ Assigned: N  |  🔄 Transitioned: N  |  🏷️ Manual Triage: N  |  ❌ Errors: N\n\n────────────────────────\n✅ ASSIGNED\n• CM-XXXXX — <summary> → <assignee> (<reason>)\n\n🔄 TRANSITIONED (Already Assigned)\n• CM-XXXXX — <summary> → <assignee>\n\n🏷️ MANUAL TRIAGE REQUIRED\n• CM-XXXXX — <summary> | Reason: <reason>\n\n📊 TEAM WORKLOAD (post-triage)\n⚠️ Over capacity:\n  • <Name>: X/maxLoad ⚠️\n\n✅ On track:\n  • <Name>: X/maxLoad  [████░░] X%",
   "notify": [
     {"name": "Hritik Chaudhary", "email": "hritik.chaudhary@eptura.com"},
     {"name": "Shilpa Goyal", "email": "shilpa.goyal@eptura.com"}
@@ -76,7 +76,7 @@ Use this when filter 55922 returns no tickets to process:
 ```json
 {
   "type": "workload_summary",
-  "text": "📊 Serraview Workload — No new tickets in filter 55922\n\n[one line per engineer: Name: X/maxLoad (OK | ⚠️ Over capacity)]",
+  "text": "📊 Serraview Workload Summary — <date>\nNo new tickets in filter 55922.\n\n────────────────────────\n⚠️ OVER CAPACITY\n  • <Name>: X/maxLoad ⚠️ — over by N ticket(s)\n\n✅ ON TRACK\n  • <Name>: X/maxLoad  [████░░] X%\n  • <Name>: X/maxLoad  [██░░░░] X%",
   "notify": [
     {"name": "Nipun Sahni", "email": "nipun.sahni@eptura.com"},
     {"name": "Gaurav Kumar", "email": "Gaurav.Kumar@eptura.com"}
