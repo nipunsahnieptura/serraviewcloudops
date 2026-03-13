@@ -22,14 +22,18 @@ project = CM AND "Category and Sub-category[Select List (cascading)]" IN cascade
 ```
 Count active Serraview tickets per person. Flag anyone at or over their `maxLoad`.
 ### Step 2b: Check for Stale / SLA-Breached Tickets
-For every open assigned Serraview ticket returned in Step 2, fetch the latest comment:
+For every open assigned Serraview ticket returned in Step 2, determine its severity and check its last comment.
+
+**Reading severity**: Use the **"Severity Level"** custom field (NOT the standard `priority` field). Fetch the issue with `fields=*all` or use `expand=names` to locate the field. The value is formatted as `"S1 = ...", "S2 = ...", "S3 = ...", "S4 = ..."` — extract the leading `S1`/`S2`/`S3`/`S4` prefix. If the field is absent or unreadable, default to S3/S4 thresholds.
+
+**Fetching last comment**:
 ```
 GET /rest/api/3/issue/{issueKey}/comment?maxResults=1&orderBy=-created
 ```
 Compare the latest comment's `created` timestamp (or the ticket's `created` timestamp if there are no comments) to the current time. Apply the following SLA thresholds:
 ```yaml
-S1 (Critical):  flag if last update > 1 hour ago
-S2 (High):      flag if last update > 4 hours ago
+S1 (Critical):    flag if last update > 1 hour ago
+S2 (High):        flag if last update > 4 hours ago
 S3/S4 (Standard): flag if last update > 24 hours ago
 ```
 Collect all breached tickets into a `stale_tickets` list:
