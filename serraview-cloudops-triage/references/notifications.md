@@ -63,4 +63,27 @@ Tag in alerts:
 
 ## Send Rules
 
-- ALWAYS send after every triage run (even if all lists are empty)
+- **If filter 55922 had tickets**: send the full `triage_summary` payload (assigned, transitioned_only, manual_triage, errors)
+- **If filter 55922 had NO tickets**: send a `workload_summary` payload (see below) — do NOT send an empty triage summary
+
+## Workload-Only Payload Format
+
+Use this when filter 55922 returns no tickets to process:
+
+```json
+{
+  "type": "workload_summary",
+  "notify": [
+    {"name": "Nipun Sahni", "email": "nipun.sahni@eptura.com"},
+    {"name": "Gaurav Kumar", "email": "Gaurav.Kumar@eptura.com"}
+  ],
+  "message": "No new Serraview CM tickets to triage. Current workload:",
+  "workload": [
+    {"engineer": "Ankit Kumar Sinha", "active_tickets": 0, "max_load": 10, "status": "OK"},
+    {"engineer": "Yuan Yang", "active_tickets": 0, "max_load": 5, "status": "OK"},
+    {"engineer": "Deevanshu Gakhar", "active_tickets": 0, "max_load": 5, "status": "OK"},
+    {"engineer": "Gaurav Kumar", "active_tickets": 0, "max_load": 10, "status": "OK"}
+  ],
+  "timestamp": "<ISO timestamp>"
+}
+```

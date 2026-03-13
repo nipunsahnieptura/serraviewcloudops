@@ -16,11 +16,11 @@ Read `references/notifications.md` for Teams webhook URL, recipients, and payloa
 ### Step 1: Get Team Availability
 Check the `onLeave` parameter. Remove those members from the available assignee pool for this run.
 ### Step 2: Query Current Workload
-Query open tickets for all team members via Jira REST API:
+Query open Serraview tickets for all team members via Jira REST API:
 ```
-project = CM AND assignee IN ("712020:e779f9ea-49c9-4573-8a3a-61a6264cd283", "639af1b47145571a7ea882d7", "6362e6fe59c794184bcc1a3e", "712020:b217ad2b-f35c-41e1-8ec5-73d5d58952d0", "712020:7f06dd3b-4d20-4e02-bb38-b3ff9ea66c64", "64238bb20152b5f4f9f2e7f9", "712020:4962c34a-ee1a-427c-aced-015675053cae", "62b8f3e8118b20bee2ba7228") AND status NOT IN (Done, Cancelled, "Under Observation")
+project = CM AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview") AND assignee IN ("712020:e779f9ea-49c9-4573-8a3a-61a6264cd283", "639af1b47145571a7ea882d7", "6362e6fe59c794184bcc1a3e", "712020:b217ad2b-f35c-41e1-8ec5-73d5d58952d0", "712020:7f06dd3b-4d20-4e02-bb38-b3ff9ea66c64", "64238bb20152b5f4f9f2e7f9", "712020:4962c34a-ee1a-427c-aced-015675053cae", "62b8f3e8118b20bee2ba7228") AND status NOT IN (Done, Cancelled, "Under Observation")
 ```
-Count active tickets per person. Flag anyone at or over their `maxLoad`.
+Count active Serraview tickets per person. Flag anyone at or over their `maxLoad`.
 ### Step 3: Fetch Tickets from Filter 55922
 Get all tickets from filter 55922 (Serraview_NewIssue_CM) via Jira REST API.
 **Pre-check - Under Observation**: If a ticket's current status is "Under Observation", skip it entirely. Add to Skipped section with reason "Under Observation — excluded from triage". Do NOT assign, transition, or label.
@@ -78,7 +78,8 @@ On API timeout/error: log the error, skip that ticket, continue with remaining, 
 ```
 ### Step 7: Send Notifications
 Read `references/notifications.md` for webhook URL, recipients, and payload format.
-- ALWAYS send Teams notification via webhook after every triage run
+- **If filter 55922 returned NO tickets** (nothing to assign or approve): send a workload-only notification containing the current Serraview workload per team member. Do NOT send an empty triage summary.
+- **If filter 55922 returned tickets**: send the full triage summary notification as normal.
 ## Key Rules
 - AUTO-ASSIGNS tickets — no confirmation required
 - Filter 55922 targets "New Issue" status, non-S1 tickets
