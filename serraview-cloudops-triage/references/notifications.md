@@ -21,9 +21,12 @@ Tag in alerts:
 
 ## Notification Payload Format
 
+The `text` field is the primary display field — Power Automate renders this as the Teams message body. Always populate it with a human-readable summary before sending.
+
 ```json
 {
   "type": "triage_summary",
+  "text": "🔔 Serraview Triage Complete\n✅ Assigned: N | 🔄 Transitioned: N | 🏷️ Manual Triage: N | ❌ Errors: N\n\n[one line per ticket: CM-XXXXX — summary → assignee]",
   "notify": [
     {"name": "Hritik Chaudhary", "email": "hritik.chaudhary@eptura.com"},
     {"name": "Shilpa Goyal", "email": "shilpa.goyal@eptura.com"}
@@ -73,6 +76,7 @@ Use this when filter 55922 returns no tickets to process:
 ```json
 {
   "type": "workload_summary",
+  "text": "📊 Serraview Workload — No new tickets in filter 55922\n\n[one line per engineer: Name: X/maxLoad (OK | ⚠️ Over capacity)]",
   "notify": [
     {"name": "Nipun Sahni", "email": "nipun.sahni@eptura.com"},
     {"name": "Gaurav Kumar", "email": "Gaurav.Kumar@eptura.com"}
