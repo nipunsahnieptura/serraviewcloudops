@@ -26,7 +26,7 @@ The `text` field is the primary display field — Power Automate renders this as
 ```json
 {
   "type": "triage_summary",
-  "text": "🔔 Serraview Triage Complete — <date>\n\n✅ Assigned: N  |  🔄 Transitioned: N  |  🏷️ Manual Triage: N  |  ❌ Errors: N\n\n✅ ASSIGNED\n\n• CM-XXXXX — <summary> → <assignee> (<reason>)\n\n• CM-XXXXX — <summary> → <assignee> (<reason>)\n\n🔄 TRANSITIONED (Already Assigned)\n\n• CM-XXXXX — <summary> → <assignee>\n\n🏷️ MANUAL TRIAGE REQUIRED\n\n• CM-XXXXX — <summary> | Reason: <reason>\n\n📊 TEAM WORKLOAD (post-triage)\n\n⚠️ Over capacity:\n\n  • <Name>: X/maxLoad ⚠️\n\n✅ On track:\n\n  • <Name>: X/maxLoad (X%)\n\n  • <Name>: X/maxLoad (X%)",
+  "text": "🔔 Serraview Triage Complete — <date>\n\n✅ Assigned: N  |  🔄 Transitioned: N  |  🏷️ Manual Triage: N  |  ❌ Errors: N  |  ⏰ Stale: N\n\n✅ ASSIGNED\n\n• CM-XXXXX — <summary> → <assignee> (<reason>)\n\n• CM-XXXXX — <summary> → <assignee> (<reason>)\n\n🔄 TRANSITIONED (Already Assigned)\n\n• CM-XXXXX — <summary> → <assignee>\n\n🏷️ MANUAL TRIAGE REQUIRED\n\n• CM-XXXXX — <summary> | Reason: <reason>\n\n⏰ STALE / SLA-BREACHED TICKETS\n\n• [S1] CM-XXXXX — <summary> | Assignee: <name> | Last update: Xh ago (SLA: 1h)\n\n• [S2] CM-XXXXX — <summary> | Assignee: <name> | Last update: Xh ago (SLA: 4h)\n\n📊 TEAM WORKLOAD (post-triage)\n\n⚠️ Over capacity:\n\n  • <Name>: X/maxLoad ⚠️\n\n✅ On track:\n\n  • <Name>: X/maxLoad (X%)\n\n  • <Name>: X/maxLoad (X%)",
   "notify": [
     {"name": "Hritik Chaudhary", "email": "hritik.chaudhary@eptura.com"},
     {"name": "Shilpa Goyal", "email": "shilpa.goyal@eptura.com"}
@@ -60,6 +60,17 @@ The `text` field is the primary display field — Power Automate renders this as
   "errors": [
     {"ticket": "CM-XXXXX", "error": "Transition failed"}
   ],
+  "stale_tickets": [
+    {
+      "key": "CM-XXXXX",
+      "url": "https://eptura.atlassian.net/browse/CM-XXXXX",
+      "summary": "ticket summary",
+      "assignee": "engineer@eptura.com",
+      "severity": "S2",
+      "last_update": "6h ago",
+      "sla_threshold": "4h"
+    }
+  ],
   "timestamp": "<ISO timestamp>"
 }
 ```
@@ -76,7 +87,7 @@ Use this when filter 55922 returns no tickets to process:
 ```json
 {
   "type": "workload_summary",
-  "text": "📊 Serraview Workload Summary — <date>\n\nNo new tickets in filter 55922.\n\n⚠️ OVER CAPACITY\n\n  • <Name>: X/maxLoad ⚠️ — over by N ticket(s)\n\n✅ ON TRACK\n\n  • <Name>: X/maxLoad (X%)\n\n  • <Name>: X/maxLoad (X%)",
+  "text": "📊 Serraview Workload Summary — <date>\n\nNo new tickets in filter 55922.\n\n⏰ STALE / SLA-BREACHED TICKETS\n\n• [S1] CM-XXXXX — <summary> | Assignee: <name> | Last update: Xh ago (SLA: 1h)\n\n• [S2] CM-XXXXX — <summary> | Assignee: <name> | Last update: Xh ago (SLA: 4h)\n\n⚠️ OVER CAPACITY\n\n  • <Name>: X/maxLoad ⚠️ — over by N ticket(s)\n\n✅ ON TRACK\n\n  • <Name>: X/maxLoad (X%)\n\n  • <Name>: X/maxLoad (X%)",
   "notify": [
     {"name": "Nipun Sahni", "email": "nipun.sahni@eptura.com"},
     {"name": "Gaurav Kumar", "email": "Gaurav.Kumar@eptura.com"}
