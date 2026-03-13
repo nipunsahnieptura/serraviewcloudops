@@ -26,7 +26,7 @@ The `text` field is the primary display field — Power Automate renders this as
 ```json
 {
   "type": "triage_summary",
-  "text": "🔔 Serraview Triage Complete — <date>\n\n✅ Assigned: N  |  🔄 Transitioned: N  |  🏷️ Manual Triage: N  |  ❌ Errors: N\n\n────────────────────────\n✅ ASSIGNED\n• CM-XXXXX — <summary> → <assignee> (<reason>)\n\n🔄 TRANSITIONED (Already Assigned)\n• CM-XXXXX — <summary> → <assignee>\n\n🏷️ MANUAL TRIAGE REQUIRED\n• CM-XXXXX — <summary> | Reason: <reason>\n\n📊 TEAM WORKLOAD (post-triage)\n⚠️ Over capacity:\n  • <Name>: X/maxLoad ⚠️\n\n✅ On track:\n  • <Name>: X/maxLoad  [████░░] X%",
+  "text": "🔔 Serraview Triage Complete — <date>\n\n✅ Assigned: N  |  🔄 Transitioned: N  |  🏷️ Manual Triage: N  |  ❌ Errors: N\n\n✅ ASSIGNED\n\n• CM-XXXXX — <summary> → <assignee> (<reason>)\n\n• CM-XXXXX — <summary> → <assignee> (<reason>)\n\n🔄 TRANSITIONED (Already Assigned)\n\n• CM-XXXXX — <summary> → <assignee>\n\n🏷️ MANUAL TRIAGE REQUIRED\n\n• CM-XXXXX — <summary> | Reason: <reason>\n\n📊 TEAM WORKLOAD (post-triage)\n\n⚠️ Over capacity:\n\n  • <Name>: X/maxLoad ⚠️\n\n✅ On track:\n\n  • <Name>: X/maxLoad (X%)\n\n  • <Name>: X/maxLoad (X%)",
   "notify": [
     {"name": "Hritik Chaudhary", "email": "hritik.chaudhary@eptura.com"},
     {"name": "Shilpa Goyal", "email": "shilpa.goyal@eptura.com"}
@@ -76,7 +76,7 @@ Use this when filter 55922 returns no tickets to process:
 ```json
 {
   "type": "workload_summary",
-  "text": "📊 Serraview Workload Summary — <date>\nNo new tickets in filter 55922.\n\n────────────────────────\n⚠️ OVER CAPACITY\n  • <Name>: X/maxLoad ⚠️ — over by N ticket(s)\n\n✅ ON TRACK\n  • <Name>: X/maxLoad  [████░░] X%\n  • <Name>: X/maxLoad  [██░░░░] X%",
+  "text": "📊 Serraview Workload Summary — <date>\n\nNo new tickets in filter 55922.\n\n⚠️ OVER CAPACITY\n\n  • <Name>: X/maxLoad ⚠️ — over by N ticket(s)\n\n✅ ON TRACK\n\n  • <Name>: X/maxLoad (X%)\n\n  • <Name>: X/maxLoad (X%)",
   "notify": [
     {"name": "Nipun Sahni", "email": "nipun.sahni@eptura.com"},
     {"name": "Gaurav Kumar", "email": "Gaurav.Kumar@eptura.com"}
