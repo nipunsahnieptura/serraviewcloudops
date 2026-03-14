@@ -22,10 +22,10 @@ Send: Only if assignments were made OR stale tickets exist (and firstRunOfDay=tr
 
 ```yaml
 Tag in alerts:
-  - name: Hritik Chaudhary
-    email: hritik.chaudhary@eptura.com
-  - name: Shilpa Goyal
-    email: shilpa.goyal@eptura.com
+  - name: Nipun Sahni
+    email: nipun.sahni@eptura.com
+  - name: Gaurav Kumar
+    email: gaurav.kumar@eptura.com
 ```
 
 ## Stale / SLA-Breached Ticket Detection
@@ -103,22 +103,28 @@ parts.append("❌ ERRORS")
 parts.append("• CM-XXXXX: error message")
 
 # Workload (always include)
+# Counts reflect active tickets only — under-observation tickets (with no pending requests) are excluded
+# Three tiers based on load vs maxLoad:
+#   OVER CAPACITY  → currentLoad > maxLoad
+#   AT CAPACITY    → currentLoad == maxLoad
+#   ON TRACK       → currentLoad < maxLoad
 parts.append("⚠️ OVER CAPACITY")
-parts.append("• Person: {current}/{max} ⚠️  - over by {N} ticket(s)")
+parts.append("• Person: {current}/{max} ⚠️  - over by {N} ticket(s)")   # only when N > 0; append " (+{U} obs)" if U > 0
+parts.append("🔴 AT CAPACITY")
+parts.append("• Person: {current}/{max}")   # append " (+{U} obs)" if U > 0
 parts.append("✅ ON TRACK")
-parts.append("• Person: {current}/{max} ({%})")
-parts.append("• Person: {current}/{max} ({%})")
-# ...(add each person on their own line using separate parts.append() calls)
+parts.append("• Person: {current}/{max} ({%})")   # append " (+{U} obs)" if U > 0
+# ...(one parts.append per person; omit a section header entirely if no one falls in that tier)
 
-parts.append("@Hritik Chaudhary @Shilpa Goyal")
+parts.append("@Nipun Sahni @Gaurav Kumar")
 
 text = "\n\n".join(parts)   # double newline = paragraph break in Teams
 requests.post(webhook_url, json={"text": text})
 ```
 
 **Channel 1 Rules:**
-- Always send; always include workload (OVER CAPACITY + ON TRACK)
-- Always end with `@Hritik Chaudhary @Shilpa Goyal`
+- Always send; always include workload (OVER CAPACITY / AT CAPACITY / ON TRACK — omit empty tiers)
+- Always end with `@Nipun Sahni @Gaurav Kumar`
 - Stale section: only when `firstRunOfDay=true` and stale tickets found
 - Manual triage + errors: omit sections if empty
 - Triage result: "No new tickets" if nothing in filter; otherwise list each assignment

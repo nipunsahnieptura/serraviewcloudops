@@ -11,8 +11,8 @@ Transition ID for Approve: "31"
 Filter ID: 55922
 ```
 Use Jira REST API directly via curl or Python requests — do NOT use MCP tools.
-Read `references/team-config.md` for team roster, routing rules, workload balancing, and ticket analysis signals.
-Read `references/notifications.md` for Teams webhook URL, recipients, and payload format.
+Read `.agents/skills/serraview-cloudops-triage/references/team-config.md` for team roster, routing rules, workload balancing, and ticket analysis signals.
+Read `.agents/skills/serraview-cloudops-triage/references/notifications.md` for Teams webhook URL, recipients, and payload format.
 ## REST API Patterns
 ```bash
 # Auth header
