@@ -5,8 +5,8 @@ description: "Intelligent triage and assignment of Jira Change Management (CM) t
 # Serraview CloudOps Ticket Triage
 ## Jira API Configuration
 ```yaml
-Base URL: SV_JIRA_BASE_URL env var (https://eptura.atlassian.net)
-Auth: Basic (email: SV_JIRA_EMAIL env var, token: SV_JIRA_API_TOKEN env var)
+Base URL: https://eptura.atlassian.net
+Auth: Basic (email: nipun.sahni@eptura.com, token: JIRA_API_TOKEN env var)
 Transition ID for Approve: "31"
 Filter ID: 55922
 ```
@@ -15,34 +15,15 @@ Read `references/notifications.md` for Teams webhook URL, recipients, and payloa
 ## Workflow
 ### Step 1: Get Team Availability
 Check the `onLeave` parameter. Remove those members from the available assignee pool for this run.
+Check `firstRunOfDay` parameter (default: `true`). If `false`, stale tickets will be skipped in Channel 2 notification.
 ### Step 2: Query Current Workload
-Query open Serraview tickets for all team members via Jira REST API:
+Query open tickets for all team members via Jira REST API:
 ```
-project = CM AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview") AND assignee IN ("712020:e779f9ea-49c9-4573-8a3a-61a6264cd283", "639af1b47145571a7ea882d7", "6362e6fe59c794184bcc1a3e", "712020:b217ad2b-f35c-41e1-8ec5-73d5d58952d0", "712020:7f06dd3b-4d20-4e02-bb38-b3ff9ea66c64", "64238bb20152b5f4f9f2e7f9", "712020:4962c34a-ee1a-427c-aced-015675053cae", "62b8f3e8118b20bee2ba7228") AND status NOT IN (Done, Cancelled, "Under Observation")
+project = CM AND assignee IN ("712020:e779f9ea-49c9-4573-8a3a-61a6264cd283", "639af1b47145571a7ea882d7", "6362e6fe59c794184bcc1a3e", "712020:b217ad2b-f35c-41e1-8ec5-73d5d58952d0", "712020:7f06dd3b-4d20-4e02-bb38-b3ff9ea66c64", "64238bb20152b5f4f9f2e7f9", "712020:4962c34a-ee1a-427c-aced-015675053cae", "62b8f3e8118b20bee2ba7228", "712020:2f76ab05-db2b-4d65-b0d0-9568aff61366") AND status NOT IN (Done, Cancelled)
 ```
-Count active Serraview tickets per person. Flag anyone at or over their `maxLoad`.
-### Step 2b: Check for Stale / SLA-Breached Tickets
-For every open assigned Serraview ticket returned in Step 2, determine its severity and check its last comment.
-
-**Reading severity**: Use the **"Severity Level"** custom field (NOT the standard `priority` field). Fetch the issue with `fields=*all` or use `expand=names` to locate the field. The value is formatted as `"S1 = ...", "S2 = ...", "S3 = ...", "S4 = ..."` — extract the leading `S1`/`S2`/`S3`/`S4` prefix. If the field is absent or unreadable, default to S3/S4 thresholds.
-
-**Fetching last comment**:
-```
-GET /rest/api/3/issue/{issueKey}/comment?maxResults=1&orderBy=-created
-```
-Compare the latest comment's `created` timestamp (or the ticket's `created` timestamp if there are no comments) to the current time. Apply the following SLA thresholds:
-```yaml
-S1 (Critical):    flag if last update > 1 hour ago
-S2 (High):        flag if last update > 4 hours ago
-S3/S4 (Standard): flag if last update > 24 hours ago
-```
-Collect all breached tickets into a `stale_tickets` list:
-- Ticket key, summary, assignee, severity, last comment age (e.g. "6h ago"), SLA threshold breached
-- On API error for a specific ticket: skip it silently, do not fail the whole check.
+Count active tickets per person. Flag anyone at or over their `maxLoad`.
 ### Step 3: Fetch Tickets from Filter 55922
 Get all tickets from filter 55922 (Serraview_NewIssue_CM) via Jira REST API.
-**Pre-check - Under Observation**: If a ticket's current status is "Under Observation", skip it entirely. Add to Skipped section with reason "Under Observation — excluded from triage". Do NOT assign, transition, or label.
-
 **Bucket 1 - Already Assigned** (assignee IS NOT EMPTY):
 - DO NOT reassign
 - Call `transition_issue(issueKey, transitionId="31")` to move to Approved
@@ -58,9 +39,9 @@ For each ticket:
 
 On API timeout/error: log the error, skip that ticket, continue with remaining, add to Skipped (API Error).
 ### Step 4: Apply Routing Rules (priority order)
-1. CLAUTO/automation-fix keywords in summary/description → Deevanshu Gakhar (primary), Shobhit Mishra (secondary if Deevanshu at maxLoad)
+1. CLAUTO/automation-fix keywords in summary/description → Deevanshu Gakhar
 2. Severity S1 → Gaurav Kumar; S2 → Ankit Kumar Sinha (escalate to Gaurav if over maxLoad)
-3. Database keywords → Yuan Yang (primary), Mridul Raina (secondary), Deevanshu Gakhar (tertiary)
+3. Database keywords → Yuan Yang (primary), Deevanshu Gakhar (secondary)
 4. Domain-based routing (see routing table in `references/team-config.md`)
 5. Workload balancing
 6. Skill/will matching
@@ -92,27 +73,24 @@ On API timeout/error: log the error, skip that ticket, continue with remaining, 
 | Ticket | Reason |
 
 ### Skipped (API Error)
-|| Ticket | Error |
-
-### Stale / SLA-Breached Tickets
-|| Ticket | Summary | Assignee | Severity | Last Update | SLA Threshold |
+| Ticket | Error |
 ```
 ### Step 7: Send Notifications
-Read `references/notifications.md` for webhook URL, recipients, and payload format.
-- **If filter 55922 returned NO tickets** (nothing to assign or approve): send a workload-only notification containing the current Serraview workload and any stale tickets.
-- **If filter 55922 returned tickets**: send the full triage summary notification as normal.
-- In both cases: always include the `stale_tickets` section if any tickets have breached their SLA threshold.
+Read `references/notifications.md` for webhook URLs, recipients, and payload formats.
+- **Channel 1** (Triage Alerts + Workload): Always send — include manual_triage, errors (may be empty), and full workload summary
+- **Channel 2** (Daily Sync): Send only if assignments were made OR stale tickets exist
+  - Include all assignments from this run
+  - Include stale tickets ONLY if `firstRunOfDay=true` (default); skip on subsequent runs
+  - If both lists are empty — do NOT send
 ## Key Rules
 - AUTO-ASSIGNS tickets — no confirmation required
 - Filter 55922 targets "New Issue" status, non-S1 tickets
 - Bucket 1: already assigned → transition only (no reassignment)
 - Bucket 2: unassigned, routable → assign + transition
 - Bucket 3: unassigned, blocked/Dev/QA → ClopsManualTriage label + Teams alert
-- DB tasks restricted to Yuan Yang, Mridul Raina, and Deevanshu Gakhar only
-- CLAUTO/automation tickets go to Deevanshu Gakhar (primary) or Shobhit Mishra (secondary)
+- DB tasks restricted to Yuan Yang and Deevanshu Gakhar only
+- CLAUTO/automation tickets go to Deevanshu Gakhar only
 - Respect incubation for Ankit Kumar Sinha (prioritize Critical/Exploratory over BAU)
-- Tickets in "Under Observation" status are skipped entirely (not assigned, transitioned, or labelled) and excluded from workload counts
-- Stale SLA thresholds: S1 > 1h, S2 > 4h, S3/S4 > 24h — always reported in notification
 ## Example Invocation
 User: "Triage the unassigned tickets, Yuan Yang is on leave today"
 1. Exclude Yuan Yang from available assignees
@@ -120,4 +98,4 @@ User: "Triage the unassigned tickets, Yuan Yang is on leave today"
 3. Transition already-assigned tickets (Bucket 1)
 4. Analyze and route unassigned tickets (Buckets 2 & 3)
 5. For DB tickets normally routed to Yuan Yang, escalate to Deevanshu Gakhar or flag for manual triage
-6. Send Teams notification with triage summary
+6. Send Teams notification if there are manual triage tickets or errors

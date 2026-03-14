@@ -64,17 +64,27 @@ Engineers:
     domains: [Serraview/Database related changes\updates]
     skillWill: Average
     maxLoad: 5
-    notes: Time-constrained, handles dba tasks ONLY for his domains
-    assign: database related cms
+    notes: Time-constrained, handles DBA tasks ONLY for his domains
+    assign: database related CMs
 
   - name: Vikas Kumar
     email: vikas.kumar@eptura.com
     accountId: "62b8f3e8118b20bee2ba7228"
     domains: [Serraview]
-    skillWill: Average
+    skillWill: Below Average
     maxLoad: 5
-    notes: Fire-and-forget, can explore unknowns, INCUBATE from daily CM work
-    assign: Critical CMs, Exploratory work
+    shift: 4:00 AM - 12:00 PM IST (AU hours)
+    notes: AU resource for Serraview S1/S2 tickets raised after midnight IST
+    assign: Avoid exploration
+
+US Coverage (After Hours):
+  - name: Michael Ola Soga Jr.
+    email: michael.soga@eptura.com
+    accountId: "712020:2f76ab05-db2b-4d65-b0d0-9568aff61366"
+    domains: [Serraview]
+    shift: 7:00 PM IST - 5:00 AM IST (US hours)
+    notes: Handles ALL Boeing tickets at any time (no shift restriction). Also covers Serraview S1/S2 raised during US hours (7:00 PM–5:00 AM IST).
+    assign: Boeing tickets (any time, keyword-based); Serraview S1/S2 ONLY during 7:00 PM–5:00 AM IST shift
 ```
 
 ## Jira Filter & Transition Configuration
@@ -99,10 +109,10 @@ Manual Triage Label: ClopsManualTriage
 
 | Category/Domain | Primary | Secondary | Notes |
 |---|---|---|---|
-| Serraview General (Critical/Exploratory) | Ankit Kumar Sinha | Vikas Kumar | Critical/exploratory work |
-| Serraview BAU | Ankit Kumar Sinha | Mashkoor Ahmad | Workload-balanced; Mashkoor for non-critical overflow |
-| Serraview Database | Yuan Yang | Mridul Raina | DB changes, schema updates, migrations; Deevanshu tertiary |
-| Serraview Automation / CLAUTO | Deevanshu Gakhar | Shobhit Mishra | CLAUTO tickets or automation-fix CMs ONLY |
+| Serraview General (Critical/Exploratory) | Ankit Kumar Sinha | Yuan Yang | Ankit primary for critical/exploratory |
+| Serraview BAU | Ankit Kumar Sinha | Yuan Yang | Workload-balanced |
+| Serraview Database | Yuan Yang | Deevanshu Gakhar | DB changes, schema updates, migrations |
+| Serraview Automation / CLAUTO | Deevanshu Gakhar | - | CLAUTO tickets or automation-fix CMs ONLY |
 | Serraview S1/S2 | Gaurav Kumar | Ankit Kumar Sinha | Lead handles critical severity |
 
 ### Severity Rules
@@ -126,13 +136,23 @@ S3/S4 (Standard):
 ### Special Routing Rules
 
 ```yaml
+Rule 0: After-Hours Coverage
+  No general after-hours routing rule for Serraview.
+  Vikas Kumar handles AU-hours S1/S2 (shift: 4:00 AM - 12:00 PM IST).
+
+Rule 3: Boeing Ticket Routing
+  IF summary OR description contains "Boeing" (case-insensitive):
+    Assign to Michael Ola Soga Jr. regardless of other rules
+    DO NOT assign Boeing tickets to any other engineer
+
 Rule 1: CLAUTO / Automation-Fix Routing
   IF summary/description contains CLAUTO keywords (clauto, automation-fix):
     Assign to Deevanshu Gakhar (Principal) regardless of other rules
+    Secondary: Shobhit Mishra (CLAUTO only)
 
 Rule 2: Database Task Routing
   IF ticket involves database changes/updates/migrations/schema:
-    Assign to Yuan Yang (primary), Mridul Raina (secondary), or Deevanshu Gakhar (tertiary)
+    Assign to Yuan Yang (primary) or Mridul Raina (secondary) or Deevanshu Gakhar (tertiary)
     DO NOT assign DB tasks to general Serraview engineers
 ```
 
@@ -157,17 +177,14 @@ IF no one in domain has ANY capacity:
 ```yaml
 Exploration/Unknown tasks:
   - Ankit Kumar Sinha (Top Performer, can explore unknowns)
-  - Vikas Kumar (can explore unknowns)
   - AVOID: Yuan Yang (Average, DB tasks only)
 
 Known/Repetitive tasks:
   - Yuan Yang (database related CMs)
-  - Mashkoor Ahmad (non-critical BAU CMs)
 
 Database tasks:
   - Yuan Yang (primary)
-  - Mridul Raina (secondary, dba tasks)
-  - Deevanshu Gakhar (tertiary, automation-related DB)
+  - Deevanshu Gakhar (secondary, automation-related DB)
 ```
 
 ### Protected Engineers (Incubation)
@@ -227,5 +244,5 @@ IF summary/description contains CLAUTO keywords (clauto, automation-fix):
   Route to Deevanshu Gakhar (Principal) regardless of Category field
 
 IF summary/description contains DB keywords (database, schema, migration, sql, dba):
-  Route to Yuan Yang / Mridul Raina / Deevanshu Gakhar regardless of Category field
+  Route to Yuan Yang / Deevanshu Gakhar regardless of Category field
 ```
