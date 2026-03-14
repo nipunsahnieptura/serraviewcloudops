@@ -5,13 +5,43 @@ description: "Intelligent triage and assignment of Jira Change Management (CM) t
 # Serraview CloudOps Ticket Triage
 ## Jira API Configuration
 ```yaml
-Base URL: https://eptura.atlassian.net
-Auth: Basic (email: nipun.sahni@eptura.com, token: JIRA_API_TOKEN env var)
+Base URL: $SV_JIRA_BASE_URL (env var)
+Auth: Basic base64(SV_JIRA_EMAIL:SV_JIRA_API_TOKEN)
 Transition ID for Approve: "31"
 Filter ID: 55922
 ```
+Use Jira REST API directly via curl or Python requests — do NOT use MCP tools.
 Read `references/team-config.md` for team roster, routing rules, workload balancing, and ticket analysis signals.
 Read `references/notifications.md` for Teams webhook URL, recipients, and payload format.
+## REST API Patterns
+```bash
+# Auth header
+AUTH=$(echo -n "$SV_JIRA_EMAIL:$SV_JIRA_API_TOKEN" | base64)
+HEADER="Authorization: Basic $AUTH"
+
+# Get filter results
+curl -s -H "$HEADER" -H "Content-Type: application/json" \
+  "$SV_JIRA_BASE_URL/rest/api/3/filter/55922/jql" | jq .jql
+
+curl -s -H "$HEADER" -H "Content-Type: application/json" \
+  -X POST "$SV_JIRA_BASE_URL/rest/api/3/search/jql" \
+  -d '{"jql":"filter=55922","fields":["summary","assignee","priority","description","comment","labels","customfield_15699"]}'
+
+# Transition issue
+curl -s -H "$HEADER" -H "Content-Type: application/json" \
+  -X POST "$SV_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX/transitions" \
+  -d '{"transition":{"id":"31"}}'
+
+# Assign issue
+curl -s -H "$HEADER" -H "Content-Type: application/json" \
+  -X PUT "$SV_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX/assignee" \
+  -d '{"accountId":"ACCOUNT_ID"}'
+
+# Add label
+curl -s -H "$HEADER" -H "Content-Type: application/json" \
+  -X PUT "$SV_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX" \
+  -d '{"update":{"labels":[{"add":"ClopsManualTriage"}]}}'
+```
 ## Workflow
 ### Step 1: Get Team Availability
 Check the `onLeave` parameter. Remove those members from the available assignee pool for this run.
@@ -26,7 +56,7 @@ Count active tickets per person. Flag anyone at or over their `maxLoad`.
 Get all tickets from filter 55922 (Serraview_NewIssue_CM) via Jira REST API.
 **Bucket 1 - Already Assigned** (assignee IS NOT EMPTY):
 - DO NOT reassign
-- Call `transition_issue(issueKey, transitionId="31")` to move to Approved
+- POST to `/rest/api/3/issue/{issueKey}/transitions` with `{"transition":{"id":"31"}}` to move to Approved
 - Output: Auto-Transitioned (Already Assigned)
 
 **Bucket 2 & 3 - Unassigned** (assignee IS EMPTY):
@@ -46,10 +76,10 @@ On API timeout/error: log the error, skip that ticket, continue with remaining, 
 5. Workload balancing
 6. Skill/will matching
 ### Step 5: Execute Assignments
-- **Blocked/Dev/QA**: Add label `ClopsManualTriage` via Jira API. DO NOT assign or transition.
+- **Blocked/Dev/QA**: PUT `/rest/api/3/issue/{issueKey}` with `{"update":{"labels":[{"add":"ClopsManualTriage"}]}}`. DO NOT assign or transition.
 - **Routable**:
-  1. `transition_issue(issueKey, transitionId="31")`
-  2. `update_issue(issueKey, assignee={email})` — use **email format** (not accountId); the Jira MCP tool resolves assignees by email
+  1. POST `/rest/api/3/issue/{issueKey}/transitions` with `{"transition":{"id":"31"}}`
+  2. PUT `/rest/api/3/issue/{issueKey}/assignee` with `{"accountId":"ACCOUNT_ID"}` — use the **accountId** from `references/team-config.md`
 ### Step 6: Output Summary
 ```
 ## Triage Complete
