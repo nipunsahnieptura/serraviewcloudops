@@ -106,12 +106,21 @@ On API timeout/error: log the error, skip that ticket, continue with remaining, 
 | Ticket | Error |
 ```
 ### Step 7: Send Notifications
-Read `references/notifications.md` for webhook URLs, recipients, and payload formats.
-- **Channel 1** (Triage Alerts + Workload): Always send — include manual_triage, errors (may be empty), and full workload summary
-- **Channel 2** (Daily Sync): Send only if assignments were made OR stale tickets exist
-  - Include all assignments from this run
-  - Include stale tickets ONLY if `firstRunOfDay=true` (default); skip on subsequent runs
-  - If both lists are empty — do NOT send
+Read `references/notifications.md` for webhook URLs, payload format, and stale/SLA detection rules.
+
+**7a. Detect stale/SLA-breached tickets** (only when `firstRunOfDay=true`):
+For each team member, query their open CM tickets and check hours since last update against SLA:
+- S1/S2 (Highest/High priority): flag if not updated in > 4h
+- S3/S4 (Medium/Low priority): flag if not updated in > 24h
+Group stale tickets by person. See `references/notifications.md` for format and JQL.
+
+**7b. Send Channel 1** (always send):
+POST HTML payload to Channel 1 webhook. Include: triage result, stale tickets (if firstRunOfDay), manual triage alerts (if any), errors (if any), full workload summary (OVER CAPACITY + ON TRACK). Always @mention Hritik Chaudhary and Shilpa Goyal at the end.
+
+**7c. Send Channel 2** (conditional):
+POST HTML payload to Channel 2 webhook ONLY if assignments were made OR stale tickets exist.
+Include: assignments from this run + stale tickets (if firstRunOfDay=true).
+If both lists are empty — do NOT send.
 ## Key Rules
 - AUTO-ASSIGNS tickets — no confirmation required
 - Filter 55922 targets "New Issue" status, non-S1 tickets
