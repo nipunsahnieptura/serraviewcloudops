@@ -103,12 +103,14 @@ parts.append("❌ ERRORS")
 parts.append("• CM-XXXXX: error message")
 
 # Workload (always include)
+# Counts reflect active tickets only — under-observation tickets (with no pending requests) are excluded
 parts.append("⚠️ OVER CAPACITY")
-parts.append("• Person: {current}/{max} ⚠️  - over by {N} ticket(s)")
+parts.append("• Person: {current}/{max} ⚠️  - over by {N} ticket(s)  [{U} under observation]")  # include [X under observation] only if U > 0
 parts.append("✅ ON TRACK")
-parts.append("• Person: {current}/{max} ({%})")
+parts.append("• Person: {current}/{max} ({%})  [{U} under observation]")  # include [X under observation] only if U > 0
 parts.append("• Person: {current}/{max} ({%})")
 # ...(add each person on their own line using separate parts.append() calls)
+# Only append [{U} under observation] suffix when that person has excluded tickets (U > 0)
 
 parts.append("@Hritik Chaudhary @Shilpa Goyal")
 
