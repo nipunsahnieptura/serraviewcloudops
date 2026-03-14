@@ -22,10 +22,10 @@ Send: Only if assignments were made OR stale tickets exist (and firstRunOfDay=tr
 
 ```yaml
 Tag in alerts:
-  - name: Hritik Chaudhary
-    email: hritik.chaudhary@eptura.com
-  - name: Shilpa Goyal
-    email: shilpa.goyal@eptura.com
+  - name: Nipun Sahni
+    email: nipun.sahni@eptura.com
+  - name: Gaurav Kumar
+    email: gaurav.kumar@eptura.com
 ```
 
 ## Stale / SLA-Breached Ticket Detection
@@ -112,7 +112,7 @@ parts.append("• Person: {current}/{max} ({%})")
 # ...(add each person on their own line using separate parts.append() calls)
 # Only append [{U} under observation] suffix when that person has excluded tickets (U > 0)
 
-parts.append("@Hritik Chaudhary @Shilpa Goyal")
+parts.append("@Nipun Sahni @Gaurav Kumar")
 
 text = "\n\n".join(parts)   # double newline = paragraph break in Teams
 requests.post(webhook_url, json={"text": text})
