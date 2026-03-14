@@ -41,68 +41,73 @@ Tag in alerts:
 
 ## Channel 1 Payload Format
 
+Send a JSON body with a single `text` field containing the pre-formatted message as a plain text / markdown string.
+
 ```json
-{
-  "type": "triage_alert",
-  "notify": [
-    {"name": "Hritik Chaudhary", "email": "hritik.chaudhary@eptura.com"},
-    {"name": "Shilpa Goyal", "email": "shilpa.goyal@eptura.com"}
-  ],
-  "manual_triage": [
-    {
-      "key": "CM-XXXXX",
-      "url": "https://eptura.atlassian.net/browse/CM-XXXXX",
-      "summary": "ticket summary",
-      "priority": "High",
-      "reason": "QA environment - requires manual review"
-    }
-  ],
-  "errors": [
-    {"ticket": "CM-XXXXX", "error": "Transition failed"}
-  ],
-  "workload": [
-    {"person": "Yuan Yang", "current": 5, "max": 5, "status": "At limit"},
-    {"person": "Ankit Kumar Sinha", "current": 8, "max": 10, "status": "OK"}
-  ],
-  "timestamp": "<ISO timestamp>"
-}
+{"text": "<formatted message — see template below>"}
 ```
+
+### Channel 1 Text Template
+
+Build the `text` value using this structure (omit empty sections):
+
+```
+🔔 Serraview CloudOps Triage — <date>
+
+⚠️ Manual Triage Required
+• CM-XXXXX — <summary> (<reason>)
+  Link: https://eptura.atlassian.net/browse/CM-XXXXX
+
+❌ Errors
+• CM-XXXXX: <error message>
+
+📊 Workload Summary
+• Yuan Yang: 4/5 (80%) ✅
+• Ankit Kumar Sinha: 8/10 (80%) ✅
+• Mashkoor Ahmad: 6/5 ⚠️ OVER CAPACITY
+...(all team members)
+
+@Hritik Chaudhary @Shilpa Goyal
+```
+
+- If no manual triage tickets: omit the ⚠️ section
+- If no errors: omit the ❌ section
+- Always include 📊 Workload Summary
+- Always include the @mention line at the end
 
 ## Channel 1 Send Rules
 
 - Always send (workload is always included)
-- `manual_triage` and `errors` arrays may be empty if nothing flagged
+- Manual triage and error sections are optional (omit if empty)
 
 ## Channel 2 Payload Format
 
+Send a JSON body with a single `text` field containing the pre-formatted message.
+
 ```json
-{
-  "type": "daily_sync_summary",
-  "assignments": [
-    {
-      "key": "CM-XXXXX",
-      "url": "https://eptura.atlassian.net/browse/CM-XXXXX",
-      "summary": "ticket summary",
-      "assigned_to": "Ankit Kumar Sinha",
-      "reason": "S2 High, Serraview domain"
-    }
-  ],
-  "stale_tickets": [
-    {
-      "key": "CM-XXXXX",
-      "url": "https://eptura.atlassian.net/browse/CM-XXXXX",
-      "summary": "ticket summary",
-      "assignee": "Yuan Yang",
-      "days_open": 5
-    }
-  ],
-  "timestamp": "<ISO timestamp>"
-}
+{"text": "<formatted message — see template below>"}
 ```
+
+### Channel 2 Text Template
+
+```
+📋 Serraview CloudOps Daily Sync — <date>
+
+✅ New Assignments
+• CM-XXXXX → <Assignee> — <summary> (<reason>)
+  Link: https://eptura.atlassian.net/browse/CM-XXXXX
+
+🕐 Stale Tickets (>3 days no update)
+• CM-XXXXX (<Assignee>, <N> days) — <summary>
+  Link: https://eptura.atlassian.net/browse/CM-XXXXX
+```
+
+- If no assignments: omit ✅ section
+- If no stale tickets (or not firstRunOfDay): omit 🕐 section
 
 ## Channel 2 Send Rules
 
-- Send ONLY if `assignments` is not empty OR `stale_tickets` is not empty
-- If both are empty → Do NOT send
-- `stale_tickets`: query tickets with no status change for > 3 days (JQL: `project = CM AND assignee IS NOT EMPTY AND status NOT IN (Done, Cancelled) AND updated <= -3d`)
-- **Stale tickets are sent once per day only** — include them only on the first triage run of the day (controlled by `firstRunOfDay` parameter, default: true). On subsequent runs in the same day, omit `stale_tickets` entirely.
+- Send ONLY if assignments were made OR stale tickets exist (and firstRunOfDay=true)
+- If both sections would be empty → Do NOT send
+- `stale_tickets`: query `project = CM AND assignee IS NOT EMPTY AND status NOT IN (Done, Cancelled) AND updated <= -3d`
+- **Stale tickets once per day only** — include only when `firstRunOfDay=true` (default). Skip on subsequent same-day runs.
