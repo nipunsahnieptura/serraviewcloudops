@@ -113,7 +113,14 @@ For each team member, query their **active** tickets (status IN ("New Issue", "I
 Check hours since `updated` field against SLA thresholds:
 - S1/S2 (Highest/High priority): flag if not updated in > 4h
 - S3/S4 (Medium/Low priority): flag if not updated in > 24h
-Group stale tickets by person. See `references/notifications.md` for exact JQL and format.
+
+Before adding to stale list, apply **under-observation exclusion**:
+Fetch last 3 comments for each stale ticket. Exclude the ticket if:
+1. It is under observation (has observation-related label OR last team comment says "monitoring"/"under observation"/"watching" etc.) AND
+2. No one has asked for an update (last comment does NOT contain "please update"/"any update"/"following up" etc.)
+See `references/notifications.md` for exact keywords and logic.
+
+Group remaining stale tickets by person. See `references/notifications.md` for format.
 
 **7b. Send Channel 1** (always send):
 Use Python `requests` library (NOT curl) to POST to Channel 1 webhook.

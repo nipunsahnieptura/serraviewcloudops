@@ -33,15 +33,36 @@ Tag in alerts:
 Only check **active** tickets — status must be "New Issue" or "In Progress":
 ```
 JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In Progress")
-Fields: summary, priority, updated
+Fields: summary, priority, updated, labels, comment
 ```
+
 For each ticket, compute hours since `updated` and flag as stale if:
 - S1 or S2 (priority Highest/High): not updated in > 4 hours → SLA: 4h
 - S3 (priority Medium): not updated in > 24 hours → SLA: 24h
 - S4 (priority Low/Lowest): not updated in > 24 hours → SLA: 24h
 
+### Under-Observation Exclusion
+
+Before adding a ticket to the stale list, check if it should be excluded.
+A ticket is **excluded** from stale reporting if BOTH conditions are true:
+
+**Condition A — Ticket is under observation:**
+Any of:
+- Has a label matching (case-insensitive): `underobservation`, `under-observation`, `under_observation`, `monitoring`, `observation`
+- Last comment from the assignee/team member contains any of: `under observation`, `monitoring`, `watching`, `observing`, `keeping an eye`, `will observe`, `under watch`
+
+**Condition B — No pending update request:**
+The last comment on the ticket (from anyone, including CS/customer) does NOT contain any of:
+`please update`, `any update`, `update?`, `following up`, `looking for update`, `any progress`, `status update`, `can you update`, `please respond`, `waiting for update`, `need an update`, `please provide`
+
+If BOTH A and B are true → **exclude** from stale list (ticket is legitimately quiet).
+If A is true but B is false (someone asked for an update) → **include** (team needs to respond).
+If A is false → **include** normally (not under observation).
+
+To check comments, fetch the last 3 comments: `GET /rest/api/3/issue/{key}/comment?maxResults=3&orderBy=-created`
+
 Format each stale ticket as: `[S{n}] {key} - {summary} | Last update: {X}h ago (SLA: {Y}h)`
-Only include team members who have at least one stale ticket.
+Only include team members who have at least one stale ticket after exclusions.
 Only run stale detection when `firstRunOfDay=true` (default).
 
 ## Channel 1 Payload Format
@@ -50,46 +71,48 @@ POST `{"text": "..."}` using **Python requests** (NOT curl) so newlines encode c
 Do NOT use HTML tags. The flow renders `text` as plain text.
 Use actual newline characters (`\n`) in the Python string for line breaks.
 
+IMPORTANT: Teams only renders paragraph breaks (blank lines between items).
+Do NOT rely on single `\n` for line breaks — use `\n\n` between every distinct line.
+Build the text as a list of sections, then join with `\n\n`:
+
 ```python
-import requests, json
+import requests
 
-lines = []
-lines.append("📊 Serraview Workload Summary - {YYYY-MM-DD}")
-lines.append("")
+parts = []
+parts.append("📊 Serraview Workload Summary - {YYYY-MM-DD}")
+
 # Triage result
-lines.append("No new tickets in filter 55922.")  # or list each assignment
-lines.append("")
-# Stale section (firstRunOfDay=true only)
-lines.append("🕐 STALE / SLA-BREACHED TICKETS")
-lines.append("")
-lines.append("Person Name:")
-lines.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
-lines.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}d ago (SLA: {Y}h)")
-lines.append("")
-lines.append("Next Person:")
-lines.append("• ...")
-lines.append("")
-# Manual triage (if any)
-lines.append("⚠️ MANUAL TRIAGE REQUIRED")
-lines.append("• CM-XXXXX — Summary (reason)")
-lines.append("")
-# Errors (if any)
-lines.append("❌ ERRORS")
-lines.append("• CM-XXXXX: error message")
-lines.append("")
-# Workload
-lines.append("⚠️ OVER CAPACITY")
-lines.append("")
-lines.append("• Person: {current}/{max} ⚠️  - over by {N} ticket(s)")
-lines.append("")
-lines.append("✅ ON TRACK")
-lines.append("")
-lines.append("• Person: {current}/{max} ({%})")
-lines.append("• Person: {current}/{max} ({%})")
-lines.append("")
-lines.append("@Hritik Chaudhary @Shilpa Goyal")
+parts.append("No new tickets in filter 55922.")  # OR each assignment as its own part:
+# parts.append("✅ CM-XXXXX → Assignee — Summary")
 
-text = "\n".join(lines)
+# Stale section (firstRunOfDay=true only, if any stale tickets)
+parts.append("🕐 STALE / SLA-BREACHED TICKETS")
+parts.append("Person Name:")         # person name on its own line
+parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
+parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}d ago (SLA: {Y}h)")
+parts.append("Next Person:")
+parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
+# ... repeat for each person
+
+# Manual triage (omit section if empty)
+parts.append("⚠️ MANUAL TRIAGE REQUIRED")
+parts.append("• CM-XXXXX — Summary (reason)")
+
+# Errors (omit section if empty)
+parts.append("❌ ERRORS")
+parts.append("• CM-XXXXX: error message")
+
+# Workload (always include)
+parts.append("⚠️ OVER CAPACITY")
+parts.append("• Person: {current}/{max} ⚠️  - over by {N} ticket(s)")
+parts.append("✅ ON TRACK")
+parts.append("• Person: {current}/{max} ({%})")
+parts.append("• Person: {current}/{max} ({%})")
+# ...(add each person on their own line using separate parts.append() calls)
+
+parts.append("@Hritik Chaudhary @Shilpa Goyal")
+
+text = "\n\n".join(parts)   # double newline = paragraph break in Teams
 requests.post(webhook_url, json={"text": text})
 ```
 
@@ -106,25 +129,26 @@ POST `{"text": "..."}` using **Python requests** (NOT curl).
 Do NOT use HTML tags. Use actual newline characters (`\n`) in the Python string.
 
 ```python
-lines = []
-lines.append("📋 Serraview CloudOps Daily Sync - {YYYY-MM-DD}")
-lines.append("")
-# Assignments (if any)
-lines.append("✅ New Assignments")
-lines.append("")
-lines.append("• CM-XXXXX → Assignee — Summary (reason)")
-lines.append("• CM-XXXXX → Assignee — Summary (reason)")
-lines.append("")
-# Stale tickets (firstRunOfDay=true only)
-lines.append("🕐 STALE / SLA-BREACHED TICKETS")
-lines.append("")
-lines.append("Person Name:")
-lines.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
-lines.append("")
-lines.append("Next Person:")
-lines.append("• ...")
+import requests
 
-text = "\n".join(lines)
+parts = []
+parts.append("📋 Serraview CloudOps Daily Sync - {YYYY-MM-DD}")
+
+# Assignments (if any)
+parts.append("✅ New Assignments")
+parts.append("• CM-XXXXX → Assignee — Summary (reason)")
+parts.append("• CM-XXXXX → Assignee — Summary (reason)")
+# ...(one parts.append per assignment)
+
+# Stale tickets (firstRunOfDay=true only)
+parts.append("🕐 STALE / SLA-BREACHED TICKETS")
+parts.append("Person Name:")
+parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
+parts.append("Next Person:")
+parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
+# ...(one parts.append per person name, one per ticket)
+
+text = "\n\n".join(parts)   # double newline = paragraph break in Teams
 requests.post(webhook_url, json={"text": text})
 ```
 
