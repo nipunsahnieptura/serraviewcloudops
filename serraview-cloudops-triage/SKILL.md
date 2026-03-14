@@ -47,19 +47,27 @@ curl -s -H "$HEADER" -H "Content-Type: application/json" \
 Check the `onLeave` parameter. Remove those members from the available assignee pool for this run.
 Check `firstRunOfDay` parameter (default: `true`). If `false`, stale tickets will be skipped in Channel 2 notification.
 ### Step 2: Query Current Workload
-Query open tickets for all team members via Jira REST API:
+First, fetch the JQL of filter 55922 to extract its Serraview category condition:
+```bash
+curl -s -H "$HEADER" "$SV_JIRA_BASE_URL/rest/api/3/filter/55922" | jq .jql
 ```
-project = CM AND assignee IN ("712020:e779f9ea-49c9-4573-8a3a-61a6264cd283", "639af1b47145571a7ea882d7", "6362e6fe59c794184bcc1a3e", "712020:b217ad2b-f35c-41e1-8ec5-73d5d58952d0", "712020:7f06dd3b-4d20-4e02-bb38-b3ff9ea66c64", "64238bb20152b5f4f9f2e7f9", "712020:4962c34a-ee1a-427c-aced-015675053cae", "62b8f3e8118b20bee2ba7228", "712020:2f76ab05-db2b-4d65-b0d0-9568aff61366") AND status NOT IN (Done, Cancelled)
-```
-For each ticket returned, fetch its last 3 comments and apply the **under-observation exclusion** before counting:
-- **Exclude from workload count** if BOTH conditions are true:
-  - **Condition A** (under observation): has an observation-related label OR last team comment contains `under observation`, `monitoring`, `watching`, `observing`, `keeping an eye`, `will observe`, `under watch`
-  - **Condition B** (no pending request): the last comment (from anyone) does NOT contain `please update`, `any update`, `update?`, `following up`, `looking for update`, `any progress`, `status update`, `can you update`, `please respond`, `waiting for update`, `need an update`, `please provide`
-- If Condition A is true but B is false (someone is waiting for a response) → **include** in workload count
-- If Condition A is false → **include** normally
+Identify the field and value used to restrict tickets to the Serraview category (e.g. a `cf[XXXXX]` or named field with value starting with "Serraview"). Use that same condition in the workload query below.
 
-Count **active (non-excluded) tickets** per person. Flag anyone at or over their `maxLoad`.
-Track the number of excluded under-observation tickets per person separately for the workload summary.
+Query active Serraview tickets for all team members — **excluding** done, cancelled, and under-observation tickets directly in JQL:
+```
+project = CM
+AND assignee IN ("712020:e779f9ea-49c9-4573-8a3a-61a6264cd283", "639af1b47145571a7ea882d7", "6362e6fe59c794184bcc1a3e", "712020:b217ad2b-f35c-41e1-8ec5-73d5d58952d0", "712020:7f06dd3b-4d20-4e02-bb38-b3ff9ea66c64", "64238bb20152b5f4f9f2e7f9", "712020:4962c34a-ee1a-427c-aced-015675053cae", "62b8f3e8118b20bee2ba7228", "712020:2f76ab05-db2b-4d65-b0d0-9568aff61366")
+AND status NOT IN (Done, Cancelled, "Under Observation")
+AND <serraview-category-condition-from-filter-55922>
+```
+
+Also run a **separate count query per person** for "Under Observation" tickets (same category filter, status = "Under Observation") to populate the `(+X obs)` suffix in the workload summary:
+```
+project = CM AND assignee = "<accountId>" AND status = "Under Observation" AND <serraview-category-condition>
+```
+
+Count active tickets per person from the main query. Flag anyone at or over their `maxLoad`.
+Track the Under Observation count (`obsCount`) per person separately for the workload summary display.
 ### Step 3: Fetch Tickets from Filter 55922
 Get all tickets from filter 55922 (Serraview_NewIssue_CM) via Jira REST API.
 **Bucket 1 - Already Assigned** (assignee IS NOT EMPTY):
