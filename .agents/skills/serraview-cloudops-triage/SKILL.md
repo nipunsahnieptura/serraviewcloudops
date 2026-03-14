@@ -109,17 +109,23 @@ On API timeout/error: log the error, skip that ticket, continue with remaining, 
 Read `references/notifications.md` for webhook URLs, payload format, and stale/SLA detection rules.
 
 **7a. Detect stale/SLA-breached tickets** (only when `firstRunOfDay=true`):
-For each team member, query their open CM tickets and check hours since last update against SLA:
+For each team member, query their **active** tickets (status IN ("New Issue", "In Progress") only).
+Check hours since `updated` field against SLA thresholds:
 - S1/S2 (Highest/High priority): flag if not updated in > 4h
 - S3/S4 (Medium/Low priority): flag if not updated in > 24h
-Group stale tickets by person. See `references/notifications.md` for format and JQL.
+Group stale tickets by person. See `references/notifications.md` for exact JQL and format.
 
 **7b. Send Channel 1** (always send):
-POST HTML payload to Channel 1 webhook. Include: triage result, stale tickets (if firstRunOfDay), manual triage alerts (if any), errors (if any), full workload summary (OVER CAPACITY + ON TRACK). Always @mention Hritik Chaudhary and Shilpa Goyal at the end.
+Use Python `requests` library (NOT curl) to POST to Channel 1 webhook.
+Build the message as a Python list of strings joined with `\n` — no HTML tags.
+Include: triage result, stale tickets (if firstRunOfDay), manual triage alerts (if any), errors (if any), full workload summary.
+See `references/notifications.md` for exact Python template.
 
 **7c. Send Channel 2** (conditional):
-POST HTML payload to Channel 2 webhook ONLY if assignments were made OR stale tickets exist.
-Include: assignments from this run + stale tickets (if firstRunOfDay=true).
+Use Python `requests` library (NOT curl) to POST to Channel 2 webhook.
+Send ONLY if assignments were made OR stale tickets exist (and firstRunOfDay=true).
+Include: assignments from this run + stale tickets.
+See `references/notifications.md` for exact Python template.
 If both lists are empty — do NOT send.
 ## Key Rules
 - AUTO-ASSIGNS tickets — no confirmation required

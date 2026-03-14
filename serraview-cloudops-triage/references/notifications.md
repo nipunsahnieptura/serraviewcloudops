@@ -30,9 +30,9 @@ Tag in alerts:
 
 ## Stale / SLA-Breached Ticket Detection
 
-For each team member, query their open tickets:
+Only check **active** tickets — status must be "New Issue" or "In Progress":
 ```
-JQL: project = CM AND assignee = "<accountId>" AND status NOT IN (Done, Cancelled)
+JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In Progress")
 Fields: summary, priority, updated
 ```
 For each ticket, compute hours since `updated` and flag as stale if:
@@ -46,82 +46,90 @@ Only run stale detection when `firstRunOfDay=true` (default).
 
 ## Channel 1 Payload Format
 
-POST `{"text": "<html>"}` with `Content-Type: application/json`.
-Use `<br>` for every line break. Use `<b>` for bold headers. Do NOT use `\n`.
+POST `{"text": "..."}` using **Python requests** (NOT curl) so newlines encode correctly.
+Do NOT use HTML tags. The flow renders `text` as plain text.
+Use actual newline characters (`\n`) in the Python string for line breaks.
 
-```
-<b>📊 Serraview Workload Summary - {YYYY-MM-DD}</b><br>
-<br>
-{IF no new tickets from filter 55922:}
-No new tickets in filter 55922.<br>
-{ELSE list each assignment/auto-transition on its own line:}
-✅ CM-XXXXX → Assignee — Summary<br>
-<br>
-{IF stale tickets exist (firstRunOfDay=true only):}
-<b>🕐 STALE / SLA-BREACHED TICKETS</b><br>
-<br>
-<b>Person Name:</b><br>
-• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)<br>
-• [S{n}] CM-XXXXX - Summary | Last update: {X}d ago (SLA: {Y}h)<br>
-<br>
-<b>Next Person:</b><br>
-• ...<br>
-<br>
-{IF manual triage tickets exist:}
-<b>⚠️ MANUAL TRIAGE REQUIRED</b><br>
-• CM-XXXXX — Summary (reason)<br>
-<br>
-{IF API errors:}
-<b>❌ ERRORS</b><br>
-• CM-XXXXX: error message<br>
-<br>
-{IF anyone over capacity:}
-<b>⚠️ OVER CAPACITY</b><br>
-<br>
-• Person: {current}/{max} ⚠️  - over by {N} ticket(s)<br>
-<br>
-<b>✅ ON TRACK</b><br>
-<br>
-• Person: {current}/{max} ({%})<br>
-• Person: {current}/{max} ({%})<br>
-...<br>
-<br>
-<at>Hritik Chaudhary</at> <at>Shilpa Goyal</at>
+```python
+import requests, json
+
+lines = []
+lines.append("📊 Serraview Workload Summary - {YYYY-MM-DD}")
+lines.append("")
+# Triage result
+lines.append("No new tickets in filter 55922.")  # or list each assignment
+lines.append("")
+# Stale section (firstRunOfDay=true only)
+lines.append("🕐 STALE / SLA-BREACHED TICKETS")
+lines.append("")
+lines.append("Person Name:")
+lines.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
+lines.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}d ago (SLA: {Y}h)")
+lines.append("")
+lines.append("Next Person:")
+lines.append("• ...")
+lines.append("")
+# Manual triage (if any)
+lines.append("⚠️ MANUAL TRIAGE REQUIRED")
+lines.append("• CM-XXXXX — Summary (reason)")
+lines.append("")
+# Errors (if any)
+lines.append("❌ ERRORS")
+lines.append("• CM-XXXXX: error message")
+lines.append("")
+# Workload
+lines.append("⚠️ OVER CAPACITY")
+lines.append("")
+lines.append("• Person: {current}/{max} ⚠️  - over by {N} ticket(s)")
+lines.append("")
+lines.append("✅ ON TRACK")
+lines.append("")
+lines.append("• Person: {current}/{max} ({%})")
+lines.append("• Person: {current}/{max} ({%})")
+lines.append("")
+lines.append("@Hritik Chaudhary @Shilpa Goyal")
+
+text = "\n".join(lines)
+requests.post(webhook_url, json={"text": text})
 ```
 
 **Channel 1 Rules:**
 - Always send; always include workload (OVER CAPACITY + ON TRACK)
-- Always end with `<at>Hritik Chaudhary</at> <at>Shilpa Goyal</at>`
+- Always end with `@Hritik Chaudhary @Shilpa Goyal`
 - Stale section: only when `firstRunOfDay=true` and stale tickets found
 - Manual triage + errors: omit sections if empty
-- Triage result: "No new tickets" if nothing in filter; otherwise list assignments
+- Triage result: "No new tickets" if nothing in filter; otherwise list each assignment
 
 ## Channel 2 Payload Format
 
-POST `{"text": "<html>"}` with `Content-Type: application/json`.
-Use `<br>` for every line break. Use `<b>` for bold headers.
+POST `{"text": "..."}` using **Python requests** (NOT curl).
+Do NOT use HTML tags. Use actual newline characters (`\n`) in the Python string.
 
-```
-<b>📋 Serraview CloudOps Daily Sync - {YYYY-MM-DD}</b><br>
-<br>
-{IF assignments were made:}
-<b>✅ New Assignments</b><br>
-<br>
-• CM-XXXXX → Assignee — Summary (reason)<br>
-• CM-XXXXX → Assignee — Summary (reason)<br>
-<br>
-{IF stale tickets and firstRunOfDay=true:}
-<b>🕐 STALE / SLA-BREACHED TICKETS</b><br>
-<br>
-<b>Person Name:</b><br>
-• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)<br>
-<br>
-<b>Next Person:</b><br>
-• ...<br>
+```python
+lines = []
+lines.append("📋 Serraview CloudOps Daily Sync - {YYYY-MM-DD}")
+lines.append("")
+# Assignments (if any)
+lines.append("✅ New Assignments")
+lines.append("")
+lines.append("• CM-XXXXX → Assignee — Summary (reason)")
+lines.append("• CM-XXXXX → Assignee — Summary (reason)")
+lines.append("")
+# Stale tickets (firstRunOfDay=true only)
+lines.append("🕐 STALE / SLA-BREACHED TICKETS")
+lines.append("")
+lines.append("Person Name:")
+lines.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
+lines.append("")
+lines.append("Next Person:")
+lines.append("• ...")
+
+text = "\n".join(lines)
+requests.post(webhook_url, json={"text": text})
 ```
 
 **Channel 2 Rules:**
 - Send ONLY if at least one section has content
 - If no assignments AND no stale tickets → Do NOT send
-- Stale tickets: same SLA-based detection as Channel 1
+- Stale tickets: same SLA-based detection as Channel 1 (active tickets only)
 - Stale tickets included only when `firstRunOfDay=true`
