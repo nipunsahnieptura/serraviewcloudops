@@ -132,17 +132,24 @@ Read `references/notifications.md` for webhook URLs, payload format, and stale/S
 
 **7a. Detect stale/SLA-breached tickets** (only when `firstRunOfDay=true`):
 For each team member, query their **active** tickets (status IN ("New Issue", "In Progress") only).
-Check hours since `updated` field against SLA thresholds:
-- S1/S2 (Highest/High priority): flag if not updated in > 4h
-- S3/S4 (Medium/Low priority): flag if not updated in > 24h
+Check elapsed time since `updated` field against SLA thresholds using weekend-adjusted hours for S3/S4 (see `references/notifications.md`).
 
-Before adding to stale list, apply **under-observation exclusion**:
-Fetch last 3 comments for each stale ticket. Exclude the ticket if:
-1. It is under observation (has observation-related label OR last team comment says "monitoring"/"under observation"/"watching" etc.) AND
-2. No one has asked for an update (last comment does NOT contain "please update"/"any update"/"following up" etc.)
-See `references/notifications.md` for exact keywords and logic.
+For each ticket that breaches its SLA threshold:
+1. Fetch full description and last 5 comments (most recent first)
+2. Apply **under-observation exclusion** (see `references/notifications.md` for keywords)
+3. For tickets that pass the exclusion check, **determine the next step** by analyzing the description and comments:
 
-Group remaining stale tickets by person. See `references/notifications.md` for format.
+**Next-step inference rules** (apply in order, use the first match):
+- Last comment is from a customer/requester containing a question or update request → `"Respond to [name/CS]: [1-line summary of what they asked]"`
+- Last comment is from the assignee/team saying they are investigating or monitoring → `"Add progress update / move ticket forward"`
+- Ticket has no comments at all → `"Initial assessment needed"`
+- Description or comments mention a blocker, dependency, or "waiting for" → `"Resolve blocker: [brief blocker description]"`
+- Description or comments mention a pending deployment or change window → `"Confirm deployment window / schedule change"`
+- Status is "New Issue" with no team comment yet → `"Assign and begin triage"`
+- Default (none of the above match) → `"Review and update ticket status"`
+
+Group remaining stale tickets by person. Include the inferred next step for each ticket.
+See `references/notifications.md` for exact format.
 
 **7b. Send Channel 1** (always send):
 Use Python `requests` library (NOT curl) to POST to Channel 1 webhook.

@@ -72,9 +72,13 @@ If A is false → **include** normally (not under observation).
 
 To check comments, fetch the last 3 comments: `GET /rest/api/3/issue/{key}/comment?maxResults=3&orderBy=-created`
 
-Format each stale ticket as: `[S{n}] {key} - {summary} | {current_status} | Last update: {X}h ago (SLA: {Y}h)`
+Format each stale ticket as:
+`[S{n}] {key} - {summary} | {current_status} | Last update: {X}h ago (SLA: {Y}h)`
+`➡️ Next: {inferred_next_step}`
+
 For S3/S4 show adjusted business hours in the "Last update" field (not raw calendar hours).
 Include the ticket's current Jira status in the `{current_status}` field (e.g. `In Progress`, `New Issue`).
+The `{inferred_next_step}` is a short, actionable phrase derived from the ticket description and last 5 comments (see SKILL.md Step 7a for inference rules).
 Only include team members who have at least one stale ticket after exclusions.
 Only run stale detection when `firstRunOfDay=true` (default).
 
@@ -102,7 +106,9 @@ parts.append("No new tickets in filter 55922.")  # OR each assignment as its own
 parts.append("🕐 STALE / SLA-BREACHED TICKETS")
 parts.append("Person Name:")         # person name on its own line
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
+parts.append("➡️ Next: {inferred_next_step}")
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}d ago (SLA: {Y}h)")
+parts.append("➡️ Next: {inferred_next_step}")
 parts.append("Next Person:")
 parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
 # ... repeat for each person
@@ -163,9 +169,11 @@ parts.append("• CM-XXXXX → Assignee — Summary (reason)")
 parts.append("🕐 STALE / SLA-BREACHED TICKETS")
 parts.append("Person Name:")
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
+parts.append("➡️ Next: {inferred_next_step}")
 parts.append("Next Person:")
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
-# ...(one parts.append per person name, one per ticket)
+parts.append("➡️ Next: {inferred_next_step}")
+# ...(one parts.append per person name, then one pair of parts.append per ticket: ticket line + next step line)
 
 text = "\n\n".join(parts)   # double newline = paragraph break in Teams
 requests.post(webhook_url, json={"text": text})
