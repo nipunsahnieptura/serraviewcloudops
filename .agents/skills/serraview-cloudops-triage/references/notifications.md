@@ -36,10 +36,21 @@ JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In P
 Fields: summary, priority, updated, labels, comment
 ```
 
-For each ticket, compute hours since `updated` and flag as stale if:
-- S1 or S2 (priority Highest/High): not updated in > 4 hours → SLA: 4h
-- S3 (priority Medium): not updated in > 24 hours → SLA: 24h
-- S4 (priority Low/Lowest): not updated in > 24 hours → SLA: 24h
+For each ticket, compute elapsed time since `updated` and flag as stale if:
+
+**S1 / S2 (Highest/High priority) — calendar hours, 24/7:**
+- Flag if not updated in > 4 calendar hours → SLA: 4h
+- Weekends do NOT reduce the elapsed time (S1/S2 are critical, no weekend grace)
+
+**S3 / S4 (Medium/Low priority) — business hours only (Mon–Fri):**
+- Flag if not updated in > 24 business hours → SLA: 24h
+- **Weekend adjustment**: subtract 24h for each Saturday and Sunday that falls within the elapsed period
+- Calculation: `business_hours = calendar_hours - (weekend_days_in_range × 24)`
+- A ticket updated on Friday will NOT be stale on Monday unless `business_hours > 24`
+- Example: updated Friday 3 PM, checked Monday 9 AM = 42 calendar hours − 48h (Sat+Sun) = −6h → NOT stale
+- Example: updated Thursday 9 AM, checked Monday 9 AM = 96 calendar hours − 48h = 48h > 24h → STALE
+
+To count weekend days in range: count distinct calendar days (midnight-to-midnight) between `updated` and `now` whose weekday is Saturday (5) or Sunday (6).
 
 ### Under-Observation Exclusion
 
@@ -61,7 +72,9 @@ If A is false → **include** normally (not under observation).
 
 To check comments, fetch the last 3 comments: `GET /rest/api/3/issue/{key}/comment?maxResults=3&orderBy=-created`
 
-Format each stale ticket as: `[S{n}] {key} - {summary} | Last update: {X}h ago (SLA: {Y}h)`
+Format each stale ticket as: `[S{n}] {key} - {summary} | {current_status} | Last update: {X}h ago (SLA: {Y}h)`
+For S3/S4 show adjusted business hours in the "Last update" field (not raw calendar hours).
+Include the ticket's current Jira status in the `{current_status}` field (e.g. `In Progress`, `New Issue`).
 Only include team members who have at least one stale ticket after exclusions.
 Only run stale detection when `firstRunOfDay=true` (default).
 
@@ -88,8 +101,8 @@ parts.append("No new tickets in filter 55922.")  # OR each assignment as its own
 # Stale section (firstRunOfDay=true only, if any stale tickets)
 parts.append("🕐 STALE / SLA-BREACHED TICKETS")
 parts.append("Person Name:")         # person name on its own line
-parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
-parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}d ago (SLA: {Y}h)")
+parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
+parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}d ago (SLA: {Y}h)")
 parts.append("Next Person:")
 parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
 # ... repeat for each person
@@ -149,9 +162,9 @@ parts.append("• CM-XXXXX → Assignee — Summary (reason)")
 # Stale tickets (firstRunOfDay=true only)
 parts.append("🕐 STALE / SLA-BREACHED TICKETS")
 parts.append("Person Name:")
-parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
+parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
 parts.append("Next Person:")
-parts.append("• [S{n}] CM-XXXXX - Summary | Last update: {X}h ago (SLA: {Y}h)")
+parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
 # ...(one parts.append per person name, one per ticket)
 
 text = "\n\n".join(parts)   # double newline = paragraph break in Teams
@@ -161,5 +174,5 @@ requests.post(webhook_url, json={"text": text})
 **Channel 2 Rules:**
 - Send ONLY if at least one section has content
 - If no assignments AND no stale tickets → Do NOT send
-- Stale tickets: same SLA-based detection as Channel 1 (active tickets only)
-- Stale tickets included only when `firstRunOfDay=true`
+- Stale tickets: same SLA-based detection as Channel 1 (active tickets only, weekend-adjusted for S3/S4)
+- Stale tickets included **only when `firstRunOfDay=true`** (default is `false`) — this ensures stale alerts appear at most once per day even when the skill runs multiple times
