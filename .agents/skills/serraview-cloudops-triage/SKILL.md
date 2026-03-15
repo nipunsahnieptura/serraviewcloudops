@@ -140,13 +140,16 @@ For each ticket that breaches its SLA threshold:
 3. For tickets that pass the exclusion check, **determine the next step** by analyzing the description and comments:
 
 **Next-step inference rules** (apply in order, use the first match):
-- Last comment is from a customer/requester containing a question or update request → `"Respond to [name/CS]: [1-line summary of what they asked]"`
+- Last comment is from a customer/requester containing a question or update request → `"Respond to [first name only] — [3–5 word topic, no verbatim quote]"`
+  Example: `"Respond to Jessiqa — awaiting status on broken reports"`
 - Last comment is from the assignee/team saying they are investigating or monitoring → `"Add progress update / move ticket forward"`
 - Ticket has no comments at all → `"Initial assessment needed"`
-- Description or comments mention a blocker, dependency, or "waiting for" → `"Resolve blocker: [brief blocker description]"`
+- Description or comments mention a blocker, dependency, or "waiting for" → `"Resolve blocker: [3–5 word description, no verbatim quote]"`
 - Description or comments mention a pending deployment or change window → `"Confirm deployment window / schedule change"`
 - Status is "New Issue" with no team comment yet → `"Assign and begin triage"`
 - Default (none of the above match) → `"Review and update ticket status"`
+
+**IMPORTANT**: Never include verbatim comment text in the next step. Summarise in your own words using at most 5 words. Do not quote or paraphrase sentences from the ticket.
 
 Group remaining stale tickets by person. Include the inferred next step for each ticket.
 See `references/notifications.md` for exact format.
