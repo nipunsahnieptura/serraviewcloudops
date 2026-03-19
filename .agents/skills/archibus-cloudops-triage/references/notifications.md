@@ -3,7 +3,7 @@
 ## Channel 1: Triage Alerts + Workload Summary
 
 ```yaml
-Webhook URL: https://default454af8f364734bce8aa5f9403e1d12.71.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b69181a7858f4aa5b6b3d8f218dab4aa/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=OnQTgTG83xYTGEKNEQkJDuPezqwtyAiKjzDdANNYxbg-
+Webhook URL: https://default454af8f364734bce8aa5f9403e1d12.71.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b69181a7858f4aa5b6b3d8f218dab4aa/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=OnQTgTG83xYTGEKNEQkJDuPezqwtyAiKjzDdANNYxbg
 
 Content: workload summary + stale/SLA-breached tickets + manual triage alerts + errors
 Send: Always (every triage run)
