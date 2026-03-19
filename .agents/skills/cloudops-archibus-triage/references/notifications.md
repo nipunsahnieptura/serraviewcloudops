@@ -82,7 +82,7 @@ Include the ticket's current Jira status in the `{current_status}` field (e.g. `
 The `{inferred_next_step}` is a short, actionable phrase derived from the ticket description and last 5 comments (see SKILL.md Step 7a for inference rules).
 
 Only include team members who have at least one stale ticket after exclusions.
-Only run stale detection when `firstRunOfDay=true` (default).
+Stale detection always runs on every triage execution.
 
 ## Channel 1 Payload Format
 
@@ -103,7 +103,7 @@ parts.append("📊 Archibus Workload Summary - {YYYY-MM-DD}")
 parts.append("No new tickets in filter 55937.")  # OR each assignment as its own part:
 # parts.append("✅ CM-XXXXX → Assignee — Summary")
 
-# Stale section (firstRunOfDay=true only, if any stale tickets)
+# Stale section (always included if any stale tickets found)
 parts.append("🕐 STALE / SLA-BREACHED TICKETS")
 parts.append("Person Name:")         # person name on its own line
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
@@ -144,7 +144,7 @@ requests.post(webhook_url, json={"text": text})
 **Channel 1 Rules:**
 - Always send; always include workload (OVER CAPACITY / AT CAPACITY / ON TRACK — omit empty tiers)
 - Always end with `@Nipun Sahni @Maninder Singh`
-- Stale section: only when `firstRunOfDay=true` and stale tickets found
+- Stale section: always included when stale tickets are found (not gated by firstRunOfDay)
 - Manual triage + errors: omit sections if empty
 - Triage result: "No new tickets" if nothing in filter; otherwise list each assignment
 

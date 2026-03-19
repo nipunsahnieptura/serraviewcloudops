@@ -48,7 +48,7 @@ curl -s -H "$HEADER" "$AI_JIRA_BASE_URL/rest/api/3/user/search?query=<email>&max
 ## Workflow
 ### Step 1: Get Team Availability
 Check the `onLeave` parameter. Remove those members from the available assignee pool for this run.
-Check `firstRunOfDay` parameter (default: **`false`**). Only if `true` will stale tickets be included in the Channel 2 notification. This prevents duplicate stale alerts when the skill runs multiple times per day.
+Check `firstRunOfDay` parameter (default: **`false`**). Stale ticket detection always runs and is always sent to Channel 1. Only if `true` will stale tickets also be included in the Channel 2 notification.
 
 **Account ID Resolution**: If any team member's `accountId` in `references/team-config.md` is `LOOKUP_REQUIRED`, resolve it using the lookup pattern above before proceeding with any JQL queries.
 ### Step 2: Query Current Workload
@@ -133,7 +133,7 @@ On API timeout/error: log the error, skip that ticket, continue with remaining, 
 ### Step 7: Send Notifications
 Read `.agents/skills/cloudops-archibus-triage/references/notifications.md` for webhook URLs, payload format, and stale/SLA detection rules.
 
-**7a. Detect stale/SLA-breached tickets** (only when `firstRunOfDay=true`):
+**7a. Detect stale/SLA-breached tickets** (always run — every triage execution):
 For each team member, query their **active** tickets (status IN ("New Issue", "In Progress") with Archibus category filter).
 Check elapsed time since `updated` field against SLA thresholds using weekend-adjusted hours for S3/S4 (see `references/notifications.md`).
 
@@ -160,7 +160,7 @@ See `references/notifications.md` for exact format.
 **7b. Send Channel 1** (always send):
 Use Python `requests` library (NOT curl) to POST to Channel 1 webhook.
 Build the message as a Python list of strings joined with `\n` — no HTML tags.
-Include: triage result, stale tickets (if firstRunOfDay), manual triage alerts (if any), errors (if any), full workload summary.
+Include: triage result, stale tickets (always, if any found), manual triage alerts (if any), errors (if any), full workload summary.
 See `references/notifications.md` for exact Python template.
 
 **7c. Send Channel 2** (conditional):
