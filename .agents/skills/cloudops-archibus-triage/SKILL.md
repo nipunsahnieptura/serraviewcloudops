@@ -5,8 +5,8 @@ description: "Intelligent triage and assignment of Jira Change Management (CM) t
 # Archibus CloudOps Ticket Triage
 ## Jira API Configuration
 ```yaml
-Base URL: $AI_JIRA_BASE_URL (env var)
-Auth: Basic base64(AI_JIRA_EMAIL:AI_JIRA_API_TOKEN)
+Base URL: $SV_JIRA_BASE_URL (env var)
+Auth: Basic base64(SV_JIRA_EMAIL:SV_JIRA_API_TOKEN)
 Transition ID for Approve: "31"
 Filter ID: 55937
 ```
@@ -16,34 +16,34 @@ Read `.agents/skills/cloudops-archibus-triage/references/notifications.md` for T
 ## REST API Patterns
 ```bash
 # Auth header
-AUTH=$(echo -n "$AI_JIRA_EMAIL:$AI_JIRA_API_TOKEN" | base64)
+AUTH=$(echo -n "$SV_JIRA_EMAIL:$SV_JIRA_API_TOKEN" | base64)
 HEADER="Authorization: Basic $AUTH"
 
 # Get filter JQL
-curl -s -H "$HEADER" "$AI_JIRA_BASE_URL/rest/api/3/filter/55937" | jq .jql
+curl -s -H "$HEADER" "$SV_JIRA_BASE_URL/rest/api/3/filter/55937" | jq .jql
 
 # Search tickets
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
-  -X POST "$AI_JIRA_BASE_URL/rest/api/3/search/jql" \
+  -X POST "$SV_JIRA_BASE_URL/rest/api/3/search/jql" \
   -d '{"jql":"filter=55937","fields":["summary","assignee","priority","description","comment","labels","customfield_15699","status"]}'
 
 # Transition issue
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
-  -X POST "$AI_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX/transitions" \
+  -X POST "$SV_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX/transitions" \
   -d '{"transition":{"id":"31"}}'
 
 # Assign issue
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
-  -X PUT "$AI_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX/assignee" \
+  -X PUT "$SV_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX/assignee" \
   -d '{"accountId":"ACCOUNT_ID"}'
 
 # Add label
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
-  -X PUT "$AI_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX" \
+  -X PUT "$SV_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX" \
   -d '{"update":{"labels":[{"add":"ClopsManualTriage"}]}}'
 
 # Lookup account ID by email (run for any LOOKUP_REQUIRED entry in team-config.md)
-curl -s -H "$HEADER" "$AI_JIRA_BASE_URL/rest/api/3/user/search?query=<email>&maxResults=1" | jq -r '.[0].accountId'
+curl -s -H "$HEADER" "$SV_JIRA_BASE_URL/rest/api/3/user/search?query=<email>&maxResults=1" | jq -r '.[0].accountId'
 ```
 ## Workflow
 ### Step 1: Get Team Availability
