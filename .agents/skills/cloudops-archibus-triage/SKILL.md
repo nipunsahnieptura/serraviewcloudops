@@ -59,7 +59,7 @@ Verify by fetching filter 55937's JQL and extract the category clause if differe
 ```
 project = CM
 AND assignee IN (<comma-separated accountIds from team-config.md>)
-AND status NOT IN (Done, Cancelled, "Under Observation")
+AND status NOT IN (Done, Cancelled, "Under Observation", "More Info needed")
 AND "Category and Sub-category[Select List (cascading)]" = Archibus
 ```
 
