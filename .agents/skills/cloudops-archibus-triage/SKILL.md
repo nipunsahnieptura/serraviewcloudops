@@ -11,8 +11,8 @@ Transition ID for Approve: "31"
 Filter ID: 55937
 ```
 Use Jira REST API directly via curl or Python requests — do NOT use MCP tools.
-Read `.agents/skills/archibus-cloudops-triage/references/team-config.md` for team roster, routing rules, workload balancing, and ticket analysis signals.
-Read `.agents/skills/archibus-cloudops-triage/references/notifications.md` for Teams webhook URL, recipients, and payload format.
+Read `.agents/skills/cloudops-archibus-triage/references/team-config.md` for team roster, routing rules, workload balancing, and ticket analysis signals.
+Read `.agents/skills/cloudops-archibus-triage/references/notifications.md` for Teams webhook URL, recipients, and payload format.
 ## REST API Patterns
 ```bash
 # Auth header
@@ -131,7 +131,7 @@ On API timeout/error: log the error, skip that ticket, continue with remaining, 
 | Ticket | Error |
 ```
 ### Step 7: Send Notifications
-Read `.agents/skills/archibus-cloudops-triage/references/notifications.md` for webhook URLs, payload format, and stale/SLA detection rules.
+Read `.agents/skills/cloudops-archibus-triage/references/notifications.md` for webhook URLs, payload format, and stale/SLA detection rules.
 
 **7a. Detect stale/SLA-breached tickets** (only when `firstRunOfDay=true`):
 For each team member, query their **active** tickets (status IN ("New Issue", "In Progress") with Archibus category filter).
