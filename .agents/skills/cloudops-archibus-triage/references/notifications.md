@@ -86,32 +86,58 @@ Stale detection always runs on every triage execution.
 
 ## Channel 1 Payload Format
 
-POST `{"text": "..."}` using **Python requests** (NOT curl) so newlines encode correctly.
-Do NOT use HTML tags. The flow renders `text` as plain text.
+Use **Adaptive Card format** — required for real Teams @mentions. POST using **Python requests** (NOT curl).
+Use `<at>Name</at>` tags in the text and register each mention in the `msteams.entities` array.
 
-IMPORTANT: Teams only renders paragraph breaks (blank lines between items).
-Do NOT rely on single `\n` for line breaks — use `\n\n` between every distinct line.
-Build the text as a list of sections, then join with `\n\n`:
+**Power Automate flow — expected structure:**
+The flow should have an **"Attachments is null"** condition:
+- **True** (no attachments): post the `Body` variable as plain text using "Post card in a chat or channel"
+- **False** (attachments present): post the Adaptive Card using **"Post card in a chat or channel"** with the `Attachments` variable as the card content
+
+If the False branch is not yet configured, add "Post card in a chat or channel" and set the card body to the `Attachments` variable from the HTTP trigger body.
 
 ```python
 import requests
 
+# Team member UPNs for real Teams @mentions (emails from team-config.md)
+TEAM_EMAILS = {
+    "Maninder Singh":   "maninder.singh@eptura.com",
+    "Santosh Prasad":  "santosh.prasad@eptura.com",
+    "Dany Silva":      "dany.silva@eptura.com",
+    "Alex Plotkin":    "alex.plotkin@eptura.com",
+    "Muskan Chaudhary": "muskan.chaudhary@eptura.com",
+    "Arpit Singh":     "arpit.singh@eptura.com",
+    "Shobhit Mishra":  "shobhit.mishra@eptura.com",
+    "Nipun Sahni":     "nipun.sahni@eptura.com",
+}
+
+def mention(name):
+    """Returns (<at>Name</at> tag, entity dict) for a real Teams @mention."""
+    tag = f"<at>{name}</at>"
+    entity = {"type": "mention", "text": tag,
+              "mentioned": {"id": TEAM_EMAILS.get(name, ""), "name": name}}
+    return tag, entity
+
 parts = []
+entities = []
+
 parts.append("📊 Archibus Workload Summary - {YYYY-MM-DD}")
 
 # Triage result
 parts.append("No new tickets in filter 55937.")  # OR each assignment as its own part:
 # parts.append("✅ CM-XXXXX → Assignee — Summary")
 
-# Stale section (always included if any stale tickets found)
+# Stale section (always included if any stale tickets found) — call mention() for each person header
 parts.append("🕐 STALE / SLA-BREACHED TICKETS")
-parts.append("Person Name:")         # person name on its own line
+tag, ent = mention("Person Name"); entities.append(ent)
+parts.append(f"{tag}:")
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
 parts.append("➡️ Next: {inferred_next_step}")
-parts.append("Next Person:")
+tag, ent = mention("Next Person"); entities.append(ent)
+parts.append(f"{tag}:")
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
 parts.append("➡️ Next: {inferred_next_step}")
-# ... repeat for each person
+# ...(one mention() call per person, then ticket + next-step lines)
 
 # Manual triage (omit section if empty)
 parts.append("⚠️ MANUAL TRIAGE REQUIRED")
@@ -135,18 +161,39 @@ parts.append("✅ ON TRACK")
 parts.append("• Person: {current}/{max} ({%})")   # append " (+{U} obs)" if U > 0
 # ...(one parts.append per person; omit a section header entirely if no one falls in that tier)
 
-parts.append("@Nipun Sahni @Maninder Singh")
+# Footer — real @mentions for Nipun Sahni and Maninder Singh
+footer = []
+for name in ["Nipun Sahni", "Maninder Singh"]:
+    tag, ent = mention(name); entities.append(ent); footer.append(tag)
+parts.append(" ".join(footer))
 
-text = "\n\n".join(parts)   # double newline = paragraph break in Teams
-requests.post(webhook_url, json={"text": text})
+full_text = "\n\n".join(parts)
+
+payload = {
+    "type": "message",
+    "attachments": [{
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "content": {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.4",
+            "body": [{"type": "TextBlock", "text": full_text, "wrap": True}],
+            "msteams": {"width": "Full", "entities": entities}
+        }
+    }]
+}
+
+requests.post(webhook_url, json=payload)
 ```
 
 **Channel 1 Rules:**
 - Always send; always include workload (OVER CAPACITY / AT CAPACITY / ON TRACK — omit empty tiers)
-- Always end with `@Nipun Sahni @Maninder Singh`
+- Use `mention()` for every stale section person header and the footer
+- Always end with real @mentions for Nipun Sahni and Maninder Singh
 - Stale section: always included when stale tickets are found (not gated by firstRunOfDay)
 - Manual triage + errors: omit sections if empty
 - Triage result: "No new tickets" if nothing in filter; otherwise list each assignment
+- **Payload format**: Adaptive Card (NOT plain text) — required for real @mentions in Teams
 
 ## Channel 2 Payload Format
 
