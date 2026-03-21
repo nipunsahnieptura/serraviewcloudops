@@ -133,7 +133,12 @@ On API timeout/error: log the error, skip that ticket, continue with remaining, 
 ### Step 7: Send Notifications
 Read `.agents/skills/cloudops-archibus-triage/references/notifications.md` for webhook URLs, payload format, and stale/SLA detection rules.
 
-**7a. Detect stale/SLA-breached tickets** (always run — every triage execution):
+**7a. Detect stale/SLA-breached tickets**
+**Determinism — do this first, before any query:**
+- Compute `now_utc = datetime.now(timezone.utc)` ONCE. Use it for every elapsed time calculation. Never re-call `datetime.now()` during stale detection.
+- Parse every Jira `updated` field as UTC: `datetime.fromisoformat(value.replace('Z', '+00:00'))`
+- Query with `maxResults=200 ORDER BY updated ASC`. Paginate if `total > 200`.
+- If any comment fetch fails → include the ticket (fail-safe, never silently drop).
 For each team member, query their **active** tickets (status IN ("New Issue", "In Progress") with Archibus category filter).
 Check elapsed time since `updated` field against SLA thresholds using weekend-adjusted hours for S3/S4 (see `references/notifications.md`).
 

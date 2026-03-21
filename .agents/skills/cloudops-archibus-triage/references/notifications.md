@@ -30,14 +30,22 @@ Tag in alerts:
 
 ## Stale / SLA-Breached Ticket Detection
 
+**Determinism rules — MUST follow to ensure consistent results across runs:**
+1. **Anchor time**: Compute `now_utc = datetime.now(timezone.utc)` ONCE before any ticket query. Use this single value for ALL elapsed time calculations in this run. Never call `datetime.now()` again during stale detection.
+2. **Fetch ALL tickets**: Use `maxResults=200` in the search API call and paginate if `total > 200`. Never rely on the default 50-result page.
+3. **Stable ordering**: Always include `ORDER BY updated ASC` in the JQL to ensure consistent result order across runs.
+4. **UTC parsing**: Parse Jira's `updated` field as UTC: `updated_utc = datetime.fromisoformat(ticket['fields']['updated'].replace('Z', '+00:00'))`
+5. **Comment fetch failure**: If the comment fetch API call fails or returns an error, **default to INCLUDE** the ticket in the stale list (fail-safe — never silently drop tickets).
+
 Only check **active** tickets — status must be "New Issue" or "In Progress" with Archibus category filter:
 ```
 JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In Progress")
-     AND "Category and Sub-category[Select List (cascading)]" = Archibus
-Fields: summary, priority, updated, labels, comment, status
+     AND "Category and Sub-category[Select List (cascading)]" = Archibus ORDER BY updated ASC
+API: POST /rest/api/3/search/jql with maxResults=200, startAt=0 (paginate if total > 200)
+Fields: summary, priority, updated, labels, status
 ```
 
-For each ticket, compute elapsed time since `updated` and flag as stale if:
+For each ticket, compute `elapsed_hours = (now_utc - updated_utc).total_seconds() / 3600` and flag as stale if:
 
 **S1 / S2 (Highest/High priority) — calendar hours, 24/7:**
 - Flag if not updated in > 4 calendar hours → SLA: 4h
@@ -72,6 +80,7 @@ If A is true but B is false (someone asked for an update) → **include** (team 
 If A is false → **include** normally (not under observation).
 
 To check comments, fetch the last 3 comments: `GET /rest/api/3/issue/{key}/comment?maxResults=3&orderBy=-created`
+**If this API call fails or returns an error — default to INCLUDE the ticket (do not silently exclude it).**
 
 Format each stale ticket as:
 `[S{n}] {key} - {summary} | {current_status} | Last update: {X}h ago (SLA: {Y}h)`

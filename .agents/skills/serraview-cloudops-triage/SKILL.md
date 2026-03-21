@@ -131,8 +131,14 @@ On API timeout/error: log the error, skip that ticket, continue with remaining, 
 Read `references/notifications.md` for webhook URLs, payload format, and stale/SLA detection rules.
 
 **7a. Detect stale/SLA-breached tickets** (only when `firstRunOfDay=true`):
+**Determinism — do this first, before any query:**
+- Compute `now_utc = datetime.now(timezone.utc)` ONCE. Use it for every elapsed time calculation. Never re-call `datetime.now()` during stale detection.
+- Parse every Jira `updated` field as UTC: `datetime.fromisoformat(value.replace('Z', '+00:00'))`
+- Query with `maxResults=200 ORDER BY updated ASC`. Paginate if `total > 200`.
+- If any comment fetch fails → include the ticket (fail-safe, never silently drop).
+
 For each team member, query their **active** tickets (status IN ("New Issue", "In Progress") only).
-Check elapsed time since `updated` field against SLA thresholds using weekend-adjusted hours for S3/S4 (see `references/notifications.md`).
+Check `elapsed_hours = (now_utc - updated_utc).total_seconds() / 3600` against SLA thresholds using weekend-adjusted hours for S3/S4 (see `references/notifications.md`).
 
 For each ticket that breaches its SLA threshold:
 1. Fetch full description and last 5 comments (most recent first)
