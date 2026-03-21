@@ -153,9 +153,12 @@ requests.post(webhook_url, json={"text": text})
 Use **Adaptive Card format** — required for real Teams @mentions. POST using **Python requests** (NOT curl).
 Use `<at>Name</at>` tags in the text and register each mention in the `msteams.entities` array.
 
-**IMPORTANT — Power Automate flow update required:** The Channel 2 flow must use the
-"Post adaptive card in a chat or channel" Teams connector action (NOT "Post a message").
-Pass the full `attachments` array received in the HTTP trigger body to that action.
+**Power Automate flow — expected structure:**
+The flow should have an **"Attachments is null"** condition:
+- **True** (no attachments): post the `Body` variable as plain text using "Post card in a chat or channel"
+- **False** (attachments present): post the Adaptive Card using **"Post card in a chat or channel"** with the `Attachments` variable as the card content
+
+If the False branch is not yet configured, add "Post card in a chat or channel" and set the card body to the `Attachments` variable from the HTTP trigger body.
 
 ```python
 import requests
