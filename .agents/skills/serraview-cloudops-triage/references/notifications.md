@@ -222,9 +222,9 @@ payload = {
         "content": {
             "type": "AdaptiveCard",
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-            "version": "1.0",
+            "version": "1.4",
             "body": [{"type": "TextBlock", "text": full_text, "wrap": True}],
-            "msteams": {"entities": entities}
+            "msteams": {"width": "Full", "entities": entities}
         }
     }]
 }
