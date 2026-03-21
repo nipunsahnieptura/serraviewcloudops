@@ -159,21 +159,23 @@ import requests
 parts = []
 parts.append("📋 Serraview CloudOps Daily Sync - {YYYY-MM-DD}")
 
-# Assignments (if any)
+# Assignments (if any) — tag each assignee inline
 parts.append("✅ New Assignments")
-parts.append("• CM-XXXXX → Assignee — Summary (reason)")
-parts.append("• CM-XXXXX → Assignee — Summary (reason)")
-# ...(one parts.append per assignment)
+parts.append("• CM-XXXXX → @Assignee — Summary (reason)")
+parts.append("• CM-XXXXX → @Assignee — Summary (reason)")
+# ...(one parts.append per assignment; always use @Name for the assignee)
 
-# Stale tickets (firstRunOfDay=true only)
+# Stale tickets (firstRunOfDay=true only) — tag each person as their section header
 parts.append("🕐 STALE / SLA-BREACHED TICKETS")
-parts.append("Person Name:")
+parts.append("@Person Name:")
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
 parts.append("➡️ Next: {inferred_next_step}")
-parts.append("Next Person:")
+parts.append("@Next Person:")
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
 parts.append("➡️ Next: {inferred_next_step}")
-# ...(one parts.append per person name, then one pair of parts.append per ticket: ticket line + next step line)
+# ...(one parts.append per person name using @Name, then one pair of parts.append per ticket: ticket line + next step line)
+
+parts.append("@Nipun Sahni @Gaurav Kumar")
 
 text = "\n\n".join(parts)   # double newline = paragraph break in Teams
 requests.post(webhook_url, json={"text": text})
@@ -184,3 +186,6 @@ requests.post(webhook_url, json={"text": text})
 - If no assignments AND no stale tickets → Do NOT send
 - Stale tickets: same SLA-based detection as Channel 1 (active tickets only, weekend-adjusted for S3/S4)
 - Stale tickets included **only when `firstRunOfDay=true`** (default is `false`) — this ensures stale alerts appear at most once per day even when the skill runs multiple times
+- Tag each assignee inline in the assignments section: `→ @Name —`
+- Tag each person as their stale section header: `@Name:`
+- Always end with `@Nipun Sahni @Gaurav Kumar`
