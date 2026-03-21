@@ -150,35 +150,83 @@ requests.post(webhook_url, json={"text": text})
 
 ## Channel 2 Payload Format
 
-POST `{"text": "..."}` using **Python requests** (NOT curl).
-Do NOT use HTML tags. Use actual newline characters (`\n`) in the Python string.
+Use **Adaptive Card format** — required for real Teams @mentions. POST using **Python requests** (NOT curl).
+Use `<at>Name</at>` tags in the text and register each mention in the `msteams.entities` array.
+
+**IMPORTANT — Power Automate flow update required:** The Channel 2 flow must use the
+"Post adaptive card in a chat or channel" Teams connector action (NOT "Post a message").
+Pass the full `attachments` array received in the HTTP trigger body to that action.
 
 ```python
 import requests
 
+# Team member UPNs for real Teams @mentions (emails from team-config.md)
+TEAM_EMAILS = {
+    "Gaurav Kumar":         "gaurav.kumar@eptura.com",
+    "Deevanshu Gakhar":    "deevanshu.gakhar@eptura.com",
+    "Yuan Yang":            "yuan.yang@eptura.com",
+    "Ankit Kumar Sinha":   "Ankit.Sinha@eptura.com",
+    "Shobhit Mishra":      "shobhit.mishra@eptura.com",
+    "Mashkoor Ahmad":      "mashkoor.ahmad@eptura.com",
+    "Mridul Raina":        "mridul.raina@eptura.com",
+    "Vikas Kumar":         "vikas.kumar@eptura.com",
+    "Michael Ola Soga Jr.": "michael.soga@eptura.com",
+    "Nipun Sahni":         "nipun.sahni@eptura.com",
+}
+
+def mention(name):
+    """Returns (<at>Name</at> tag, entity dict) for a real Teams @mention."""
+    tag = f"<at>{name}</at>"
+    entity = {"type": "mention", "text": tag,
+              "mentioned": {"id": TEAM_EMAILS.get(name, ""), "name": name}}
+    return tag, entity
+
 parts = []
+entities = []
+
 parts.append("📋 Serraview CloudOps Daily Sync - {YYYY-MM-DD}")
 
-# Assignments (if any) — tag each assignee inline
+# Assignments (if any) — call mention() for each assignee
 parts.append("✅ New Assignments")
-parts.append("• CM-XXXXX → @Assignee — Summary (reason)")
-parts.append("• CM-XXXXX → @Assignee — Summary (reason)")
-# ...(one parts.append per assignment; always use @Name for the assignee)
+tag, ent = mention("Assignee Name"); entities.append(ent)
+parts.append(f"• CM-XXXXX → {tag} — Summary (reason)")
+# ...(one mention() + parts.append per assignment)
 
-# Stale tickets (firstRunOfDay=true only) — tag each person as their section header
+# Stale tickets (firstRunOfDay=true only) — call mention() for each person header
 parts.append("🕐 STALE / SLA-BREACHED TICKETS")
-parts.append("@Person Name:")
+tag, ent = mention("Person Name"); entities.append(ent)
+parts.append(f"{tag}:")
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
 parts.append("➡️ Next: {inferred_next_step}")
-parts.append("@Next Person:")
+tag, ent = mention("Next Person"); entities.append(ent)
+parts.append(f"{tag}:")
 parts.append("• [S{n}] CM-XXXXX - Summary | {Status} | Last update: {X}h ago (SLA: {Y}h)")
 parts.append("➡️ Next: {inferred_next_step}")
-# ...(one parts.append per person name using @Name, then one pair of parts.append per ticket: ticket line + next step line)
+# ...(one mention() call per person, then ticket + next-step lines)
 
-parts.append("@Nipun Sahni @Gaurav Kumar")
+# Footer — real @mentions for Nipun Sahni and Gaurav Kumar
+footer = []
+for name in ["Nipun Sahni", "Gaurav Kumar"]:
+    tag, ent = mention(name); entities.append(ent); footer.append(tag)
+parts.append(" ".join(footer))
 
-text = "\n\n".join(parts)   # double newline = paragraph break in Teams
-requests.post(webhook_url, json={"text": text})
+full_text = "\n\n".join(parts)
+
+payload = {
+    "type": "message",
+    "attachments": [{
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "content": {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.0",
+            "body": [{"type": "TextBlock", "text": full_text, "wrap": True}],
+            "msteams": {"entities": entities}
+        }
+    }]
+}
+
+requests.post(webhook_url, json=payload)
 ```
 
 **Channel 2 Rules:**
@@ -186,6 +234,6 @@ requests.post(webhook_url, json={"text": text})
 - If no assignments AND no stale tickets → Do NOT send
 - Stale tickets: same SLA-based detection as Channel 1 (active tickets only, weekend-adjusted for S3/S4)
 - Stale tickets included **only when `firstRunOfDay=true`** (default is `false`) — this ensures stale alerts appear at most once per day even when the skill runs multiple times
-- Tag each assignee inline in the assignments section: `→ @Name —`
-- Tag each person as their stale section header: `@Name:`
-- Always end with `@Nipun Sahni @Gaurav Kumar`
+- Use `mention()` for every team member in the message (assignees, stale headers, footer)
+- Always end with real @mentions for Nipun Sahni and Gaurav Kumar
+- **Payload format**: Adaptive Card (NOT plain text) — required for real @mentions in Teams
