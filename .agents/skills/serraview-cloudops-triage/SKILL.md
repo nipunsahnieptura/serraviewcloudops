@@ -31,9 +31,43 @@ apt-get install -y python3-requests 2>/dev/null || pip install --break-system-pa
 from datetime import datetime, timezone, timedelta
 
 utc_now = datetime.now(timezone.utc)
-ist_now = utc_now + timedelta(hours=5, minutes=30)
+ist_now = utc_now + timedelta(hours=5, minutes=30)  # NOT timezone.utc + timedelta(...)
 ist_hour = ist_now.hour  # integer 0-23, used for shift-aware routing
+today_ist = ist_now.strftime("%Y-%m-%d")  # use this for notification date headers
 ```
+
+**WRONG — do not do this:**
+```python
+# WRONG: timezone.utc + timedelta(...) raises TypeError
+datetime.now(timezone.utc + timedelta(hours=5, minutes=30))
+```
+
+**Jira comment body — ADF extraction:**
+Jira's `GET /rest/api/3/issue/{key}/comment` returns each comment's `body` field as an **Atlassian Document Format (ADF) dict**, not a plain string. Calling `.lower()` directly on it raises `AttributeError: 'dict' object has no attribute 'lower'`. Always extract text from ADF before string operations:
+
+```python
+def extract_comment_text(body):
+    """Extract plain text from Jira ADF comment body (or return '' if not a string)."""
+    if isinstance(body, str):
+        return body
+    if not isinstance(body, dict):
+        return ""
+    # ADF structure: body.content[].content[].text
+    texts = []
+    for block in body.get("content", []):
+        for inline in block.get("content", []):
+            if inline.get("type") == "text":
+                texts.append(inline.get("text", ""))
+    return " ".join(texts)
+
+# Usage — always extract before any string check:
+raw_body = comment.get("body", "")
+comment_text = extract_comment_text(raw_body).lower()
+if "under observation" in comment_text:
+    ...
+```
+
+Apply `extract_comment_text()` to every comment body access throughout the script — under-observation detection, pending update request detection, next-step inference, and blocked signal detection.
 
 **No demo/simulation fallback — ever:** 
 - If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing → print a clear error to stderr and exit with code 1.
