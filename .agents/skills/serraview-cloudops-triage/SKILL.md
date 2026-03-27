@@ -19,18 +19,22 @@ Read `.agents/skills/serraview-cloudops-triage/references/notifications.md` for 
 
 ## REST API Patterns
 
+**Always use `/rest/api/3/`** — do not fall back to `/rest/api/2/`. A 410 response indicates a network/proxy error, not an API version mismatch. Retry with exponential backoff; do not switch API version.
+
 ```bash
 # Auth header
 AUTH=$(echo -n "$SV_JIRA_EMAIL:$SV_JIRA_API_TOKEN" | base64)
 HEADER="Authorization: Basic $AUTH"
 
-# Get filter results
+# Fetch filter 55922 metadata (to extract the Serraview category JQL condition)
+# Correct URL: GET /rest/api/3/filter/{id}  — NOT /filter/{id}/jql
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
-  "$SV_JIRA_BASE_URL/rest/api/3/filter/55922/jql" | jq .jql
+  "$SV_JIRA_BASE_URL/rest/api/3/filter/55922" | jq .jql
 
+# Search tickets (always POST to /rest/api/3/search/jql — not GET /rest/api/3/search)
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
   -X POST "$SV_JIRA_BASE_URL/rest/api/3/search/jql" \
-  -d '{"jql":"filter=55922","fields":["summary","assignee","priority","description","comment","labels","customfield_15699"]}'
+  -d '{"jql":"filter=55922","fields":["summary","assignee","priority","description","comment","labels","customfield_15699"],"maxResults":200,"startAt":0}'
 
 # Transition issue
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
@@ -63,13 +67,19 @@ Determine the **current IST time** at run start. This is required for shift-awar
 
 ### Step 2: Query Current Workload
 
-First, fetch the JQL of filter 55922 to extract its Serraview category condition:
+First, fetch filter 55922 to confirm the Serraview category condition:
 
 ```bash
 curl -s -H "$HEADER" "$SV_JIRA_BASE_URL/rest/api/3/filter/55922" | jq .jql
 ```
 
-Identify the field and value used to restrict tickets to the Serraview category (e.g. a `cf[XXXXX]` or named field with value starting with "Serraview"). Use that same condition in the workload queries below.
+The Serraview category condition extracted from this filter is:
+
+```
+"Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview")
+```
+
+Use this exact string in all workload queries below. If the filter JQL returns a different condition for Serraview (e.g. a `cf[XXXXX]` field ID variant), extract and substitute that exact string — do not guess or reformulate it.
 
 **Query 1 — Active workload** (excludes Done, Cancelled, and Under Observation status):
 
@@ -192,7 +202,11 @@ If the assignment call fails: do not transition. Log the error, add to Skipped (
 Output notes:
 - **Capacity Note** column: populate with "Assigned despite capacity — all assignees overloaded" when applicable; leave blank otherwise.
 - **Obs (+N)** column: show the `obsCount` for each person (under-observation tickets excluded from load). Show `0` if none. Example: `+2 obs`.
-- **Status** column: `OVER CAPACITY`, `AT CAPACITY`, or `ON TRACK` per `references/notifications.md` tier definitions.
+- **Status** column — use **exactly** these three values, matching `references/notifications.md`:
+  - `OVER CAPACITY` → currentLoad > maxLoad
+  - `AT CAPACITY` → currentLoad == maxLoad
+  - `ON TRACK` → currentLoad < maxLoad
+  - Never use "UNDER", "OK", "HEALTHY", or any other label.
 - Omit the Boeing Assigned section if no Boeing tickets were processed this run.
 
 ### Step 7: Send Notifications
@@ -238,6 +252,9 @@ See `references/notifications.md` for exact format string and display rules.
 
 Use Python `requests` library (NOT curl) to POST to Channel 1 webhook.
 Build the message as a Python list of strings joined with `\n\n` — no HTML tags.
+
+**CRITICAL — Teams @mentions in Adaptive Cards:** Plain `@Name` text does NOT trigger real mentions in Microsoft Teams Adaptive Cards. You MUST use the `mention()` helper function from `references/notifications.md` for every team member reference. This produces `<at>Name</at>` tags in the text AND registers the corresponding entity in `msteams.entities`. Missing this causes the message to send but @mentions are silent — no notification reaches the person.
+
 Include:
 - Triage result (assignments made this run, or "No new tickets in filter 55922")
 - Stale tickets section — **only when `firstRunOfDay=true` AND stale tickets were found** (omit section entirely otherwise)
@@ -252,6 +269,9 @@ Channel 1 is always sent regardless of content. See `references/notifications.md
 **7c. Send Channel 2 (conditional):**
 
 Use Python `requests` library (NOT curl) to POST to Channel 2 webhook.
+
+**CRITICAL — Teams @mentions:** Same rule as Channel 1 — always use `mention()` from `references/notifications.md`. Never use plain `@Name` text.
+
 Send ONLY if at least one of the following is true:
 - Assignments were made this run, OR
 - Stale tickets exist AND `firstRunOfDay=true`
