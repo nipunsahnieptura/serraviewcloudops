@@ -35,7 +35,12 @@ ist_now = utc_now + timedelta(hours=5, minutes=30)
 ist_hour = ist_now.hour  # integer 0-23, used for shift-aware routing
 ```
 
-**No demo/simulation fallback:** If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing or a dependency fails to install, print a clear error and exit with code 1. Never create a mock or demo script as a substitute for the real triage. Real actions only.
+**No demo/simulation fallback — ever:** 
+- If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing → print a clear error to stderr and exit with code 1.
+- If the triage script crashes or encounters a KeyError, AttributeError, or any unhandled exception → let the exception propagate (do NOT catch it with a broad `except Exception` that swallows it). The traceback is more useful than a silent demo.
+- If any step fails → log the failure to stderr and continue with remaining steps where possible; never substitute fake/mock data for real Jira results.
+- Never create a `demo_triage.py`, `demo_output.py`, or any simulation script. Real actions from real Jira API only.
+- If the real triage produces no assignments and no stale tickets, that IS a valid result — report it honestly in Channel 1 ("No new tickets in filter 55922"). Do not invent example output to make the run look more productive.
 
 **Script output — stdout safety rules:**
 The agent runtime parses the script's stdout as a JSON stream. Certain output patterns crash the runtime with `json: cannot unmarshal string into Go value of type map[string]interface {}`. To prevent this:
@@ -154,6 +159,22 @@ Determine the **current IST time** at run start. This is required for shift-awar
 - Vikas Kumar is available only 04:00–12:00 IST
 - Michael Ola Soga Jr. handles Serraview S1/S2 only during 19:00–05:00 IST (overnight)
 - Michael handles Boeing tickets at any time regardless of shift
+
+**Team maxLoad reference** — use these hardcoded values. `team-config.md` omits `maxLoad` for Michael Ola Soga Jr.; use 5 as his default. Never crash on a missing `maxLoad` key — always fall back to 5 for any member without one defined:
+
+| Person | maxLoad |
+|---|---|
+| Gaurav Kumar | 10 |
+| Deevanshu Gakhar | 5 |
+| Yuan Yang | 5 |
+| Ankit Kumar Sinha | 10 |
+| Shobhit Mishra | 5 |
+| Mashkoor Ahmad | 5 |
+| Mridul Raina | 5 |
+| Vikas Kumar | 5 |
+| Michael Ola Soga Jr. | 5 |
+
+In code: `max_load = config.get("maxLoad", 5)` — never `config["maxLoad"]`.
 
 ### Step 2: Query Current Workload
 
