@@ -37,6 +37,26 @@ ist_hour = ist_now.hour  # integer 0-23, used for shift-aware routing
 
 **No demo/simulation fallback:** If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing or a dependency fails to install, print a clear error and exit with code 1. Never create a mock or demo script as a substitute for the real triage. Real actions only.
 
+**Script output — stdout safety rules:**
+The agent runtime parses the script's stdout as a JSON stream. Certain output patterns crash the runtime with `json: cannot unmarshal string into Go value of type map[string]interface {}`. To prevent this:
+
+- **Redirect all script progress logging to stderr**, not stdout: use `print("...", file=sys.stderr)` for all status messages, debug output, and intermediate results.
+- **Never print raw JSON payloads to stdout** — the Adaptive Card payload, Jira API responses, or any dict/list printed via `print(json.dumps(...))` will crash the runtime if it reaches stdout.
+- **stdout is reserved for the final triage summary only** — the Step 6 markdown table output. Everything else goes to stderr.
+- **Avoid printing strings containing bare `{` or `}` to stdout** unless they are inside a markdown code block context.
+
+```python
+import sys
+
+# All progress/debug output → stderr (safe, never parsed by runtime)
+print("Fetching filter 55922...", file=sys.stderr)
+print(f"Found {len(issues)} tickets", file=sys.stderr)
+
+# Final summary → stdout (only markdown tables, no raw JSON)
+print("## Triage Complete")
+print("| Ticket | Summary | Assigned To |")
+```
+
 ## REST API Patterns
 
 **Always use `/rest/api/3/`** — do not fall back to `/rest/api/2/`. A 410 on the old `/rest/api/3/search` or `/rest/api/2/search` endpoint means those are deprecated — always use `POST /rest/api/3/search/jql` instead.
