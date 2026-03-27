@@ -19,22 +19,64 @@ Read `.agents/skills/serraview-cloudops-triage/references/notifications.md` for 
 
 ## REST API Patterns
 
-**Always use `/rest/api/3/`** — do not fall back to `/rest/api/2/`. A 410 response indicates a network/proxy error, not an API version mismatch. Retry with exponential backoff; do not switch API version.
+**Always use `/rest/api/3/`** — do not fall back to `/rest/api/2/`. A 410 on the old `/rest/api/3/search` or `/rest/api/2/search` endpoint means those are deprecated — always use `POST /rest/api/3/search/jql` instead.
+
+### Critical: `/rest/api/3/search/jql` behaves differently from the old `/search`
+
+**Fields parameter** — confirmed safe field names only. Adding certain fields (e.g. `"status"`, `"priority"`, `"description"`, `"comment"`, `"labels"`) to the `fields` array causes 400 errors on this tenant. Use these two strategies:
+
+- **For filter/ticket fetch**: omit `fields` entirely (returns all default fields) OR use `"fields": ["summary", "assignee"]` only — confirmed working.
+- **For individual issue detail**: fetch via `GET /rest/api/3/issue/{key}?fields=summary,assignee,priority,labels,description,status,updated` — the GET issue endpoint accepts these as URL params without the 400 issue.
+
+**Pagination** — the new `/search/jql` endpoint uses **cursor-based pagination**, NOT offset-based. There is no `startAt` parameter and no `total` field in the response:
+- Response contains `issues[]`, `isLast` (boolean), and `nextPageToken` (string)
+- To paginate: include `"nextPageToken": "<value from previous response>"` in the next request body
+- Loop until `isLast == true`
+- **Never check `data.get("total")` — it will always be 0 or absent. Check `len(data.get("issues", []))` instead.**
+
+```python
+# Correct pagination pattern for /rest/api/3/search/jql
+def search_all_tickets(jql, headers, base_url, max_results_per_page=200):
+    url = f"{base_url}/rest/api/3/search/jql"
+    all_issues = []
+    next_page_token = None
+
+    while True:
+        payload = {"jql": jql, "maxResults": max_results_per_page}
+        if next_page_token:
+            payload["nextPageToken"] = next_page_token
+
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+
+        issues = data.get("issues", [])
+        all_issues.extend(issues)
+
+        if data.get("isLast", True) or not issues:
+            break
+        next_page_token = data.get("nextPageToken")
+
+    return all_issues
+```
 
 ```bash
 # Auth header
 AUTH=$(echo -n "$SV_JIRA_EMAIL:$SV_JIRA_API_TOKEN" | base64)
 HEADER="Authorization: Basic $AUTH"
 
-# Fetch filter 55922 metadata (to extract the Serraview category JQL condition)
+# Fetch filter 55922 metadata
 # Correct URL: GET /rest/api/3/filter/{id}  — NOT /filter/{id}/jql
-curl -s -H "$HEADER" -H "Content-Type: application/json" \
-  "$SV_JIRA_BASE_URL/rest/api/3/filter/55922" | jq .jql
+curl -s -H "$HEADER" "$SV_JIRA_BASE_URL/rest/api/3/filter/55922" | jq .jql
 
-# Search tickets (always POST to /rest/api/3/search/jql — not GET /rest/api/3/search)
+# Search tickets — minimal safe fields only; fetch details per-issue via GET /issue/{key}
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
   -X POST "$SV_JIRA_BASE_URL/rest/api/3/search/jql" \
-  -d '{"jql":"filter=55922","fields":["summary","assignee","priority","description","comment","labels","customfield_15699"],"maxResults":200,"startAt":0}'
+  -d '{"jql":"filter=55922","maxResults":200}'
+
+# Fetch full issue detail (safe — all fields work via this endpoint)
+curl -s -H "$HEADER" \
+  "$SV_JIRA_BASE_URL/rest/api/3/issue/CM-XXXXX?fields=summary,assignee,priority,labels,description,status,updated"
 
 # Transition issue
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
@@ -87,8 +129,10 @@ Use this exact string in all workload queries below. If the filter JQL returns a
 project = CM
 AND assignee IN ("712020:e779f9ea-49c9-4573-8a3a-61a6264cd283", "639af1b47145571a7ea882d7", "6362e6fe59c794184bcc1a3e", "712020:b217ad2b-f35c-41e1-8ec5-73d5d58952d0", "712020:7f06dd3b-4d20-4e02-bb38-b3ff9ea66c64", "64238bb20152b5f4f9f2e7f9", "712020:4962c34a-ee1a-427c-aced-015675053cae", "62b8f3e8118b20bee2ba7228", "712020:2f76ab05-db2b-4d65-b0d0-9568aff61366")
 AND status NOT IN (Done, Cancelled, "Under Observation")
-AND <serraview-category-condition-from-filter-55922>
+AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview")
 ```
+
+**Do NOT include a `fields` array in the search payload for this query** — it causes 400 errors on this tenant. Send only `{"jql": "...", "maxResults": 200}`. Paginate using `nextPageToken` / `isLast` (not `startAt`). Count the returned issues per assignee using the `assignee.accountId` field in each returned issue object.
 
 **Query 2 — Under Observation tickets** (decide inclusion individually):
 
@@ -96,10 +140,10 @@ AND <serraview-category-condition-from-filter-55922>
 project = CM
 AND assignee IN (...same accountIds...)
 AND status = "Under Observation"
-AND <serraview-category-condition>
+AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview")
 ```
 
-For each "Under Observation" ticket returned, fetch the last 3 comments:
+Same approach: no `fields` param in the search payload. For each returned issue key, fetch full detail via `GET /rest/api/3/issue/{key}/comment?maxResults=3&orderBy=-created` to check for pending update requests.
 - If the last comment (from anyone) contains a pending update request (`please update`, `any update`, `update?`, `following up`, `looking for update`, `any progress`, `status update`, `can you update`, `please respond`, `waiting for update`, `need an update`, `please provide`) → **include in workload count** (requester is waiting on a response)
 - Otherwise → **exclude from workload count**; add to that person's `obsCount` for the `(+X obs)` display suffix in notifications
 
@@ -110,22 +154,34 @@ Flag anyone at or over their `maxLoad`. Track `obsCount` (excluded under-observa
 
 ### Step 3: Fetch Tickets from Filter 55922
 
-Get all tickets from filter 55922 (Serraview_NewIssue_CM) via Jira REST API.
+Get all tickets from filter 55922 via `POST /rest/api/3/search/jql`.
 
-**Bucket 1 — Already Assigned** (assignee IS NOT EMPTY):
+**Use the two-call pattern** — the search endpoint's `fields` parameter causes 400 errors when requesting certain field names. Fetch only ticket keys from search, then get full details per issue:
+
+```python
+# Step 1: Get all ticket keys from filter (no fields param — safest)
+search_payload = {"jql": "filter=55922", "maxResults": 200}
+# Paginate using nextPageToken / isLast (NOT startAt — see REST API Patterns)
+# Collect all issue keys
+
+# Step 2: For each key, fetch full details via GET
+# GET /rest/api/3/issue/{key}?fields=summary,assignee,priority,labels,description,status,updated
+# This endpoint safely returns all fields requested
+```
+
+**Bucket 1 — Already Assigned** (assignee IS NOT EMPTY in the fetched issue detail):
 - DO NOT reassign
 - POST to `/rest/api/3/issue/{issueKey}/transitions` with `{"transition":{"id":"31"}}` to move to Approved
 - Output: Auto-Transitioned (Already Assigned)
 
 > Filter 55922 targets "New Issue" status, non-S1 tickets. S1 tickets are handled by a separate event-based trigger and will not appear here.
 
-**Bucket 2 & 3 — Unassigned** (assignee IS EMPTY):
+**Bucket 2 & 3 — Unassigned** (assignee IS EMPTY or null):
 For each ticket:
-1. Fetch full description
-2. Fetch last 3 comments (most recent first) — used for blocked signal detection in this step only; Step 7a fetches a separate 5-comment set for stale inference
-3. Check for blocked/Dev/QA signals (see `references/team-config.md` — Ticket Analysis)
-4. Blocked or Dev/QA environment detected → apply `ClopsManualTriage` label; do NOT assign or transition
-5. Routable → apply routing rules (Step 4), assign, then transition (Step 5)
+1. Full description and last 3 comments already available from the GET issue call above — used for blocked signal detection; Step 7a fetches a separate 5-comment set for stale inference
+2. Check for blocked/Dev/QA signals (see `references/team-config.md` — Ticket Analysis)
+3. Blocked or Dev/QA environment detected → apply `ClopsManualTriage` label; do NOT assign or transition
+4. Routable → apply routing rules (Step 4), assign, then transition (Step 5)
 
 On API timeout/error: log the error, skip that ticket, continue with remaining, add to Skipped (API Error).
 
@@ -223,7 +279,14 @@ Read `references/notifications.md` for webhook URLs, payload format, and stale/S
 - Query with `maxResults=200 ORDER BY updated ASC`. Paginate if `total > 200`.
 - If any comment fetch fails → include the ticket in the stale list (fail-safe; never silently drop).
 
-For each team member, query their **active** tickets (status IN ("New Issue", "In Progress") only).
+For each team member, query their **active** tickets:
+
+```
+JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In Progress") ORDER BY updated ASC
+```
+
+**Do NOT include a `fields` array in this search payload** — causes 400 errors. Send `{"jql": "...", "maxResults": 200}` only. Paginate using `nextPageToken` / `isLast`. For each returned issue key, fetch full detail via `GET /rest/api/3/issue/{key}?fields=summary,priority,updated,labels,status` to get the fields needed for SLA calculation.
+
 Check `elapsed_hours = (now_utc - updated_utc).total_seconds() / 3600` against SLA thresholds using weekend-adjusted business hours for S3/S4 (see `references/notifications.md` for full weekend adjustment calculation and examples).
 
 For each ticket that breaches its SLA threshold:
