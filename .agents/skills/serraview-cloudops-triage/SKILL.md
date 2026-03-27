@@ -63,10 +63,13 @@ print("| Ticket | Summary | Assigned To |")
 
 ### Critical: `/rest/api/3/search/jql` behaves differently from the old `/search`
 
-**Fields parameter** — confirmed safe field names only. Adding certain fields (e.g. `"status"`, `"priority"`, `"description"`, `"comment"`, `"labels"`) to the `fields` array causes 400 errors on this tenant. Use these two strategies:
+**Fields parameter** — the search endpoint behaviour on this tenant is specific:
 
-- **For filter/ticket fetch**: omit `fields` entirely (returns all default fields) OR use `"fields": ["summary", "assignee"]` only — confirmed working.
-- **For individual issue detail**: fetch via `GET /rest/api/3/issue/{key}?fields=summary,assignee,priority,labels,description,status,updated` — the GET issue endpoint accepts these as URL params without the 400 issue.
+- **Omitting `fields` entirely** returns issues with **only `id`** — no `key`, no `assignee`, no `summary`. This makes the result useless for workload counting or stale detection. Do NOT omit fields.
+- **`"fields": ["summary", "assignee"]`** — confirmed working, returns `key`, `id`, `summary`, and `assignee.accountId`. Always use this as the minimum for all search calls.
+- **Adding other fields** (e.g. `"status"`, `"priority"`, `"updated"`, `"labels"`, `"description"`) to the array causes **400 Bad Request** on this tenant.
+
+**Rule: always use exactly `"fields": ["summary", "assignee"]` in the search payload.** Never omit it, never add other fields. For any additional field (status, priority, updated, labels, description), use a separate `GET /rest/api/3/issue/{key}?fields=...` call.
 
 **Pagination** — the new `/search/jql` endpoint uses **cursor-based pagination**, NOT offset-based. There is no `startAt` parameter and no `total` field in the response:
 - Response contains `issues[]`, `isLast` (boolean), and `nextPageToken` (string)
@@ -76,13 +79,18 @@ print("| Ticket | Summary | Assigned To |")
 
 ```python
 # Correct pagination pattern for /rest/api/3/search/jql
+# ALWAYS include "fields": ["summary", "assignee"] — omitting fields returns only id with no key
 def search_all_tickets(jql, headers, base_url, max_results_per_page=200):
     url = f"{base_url}/rest/api/3/search/jql"
     all_issues = []
     next_page_token = None
 
     while True:
-        payload = {"jql": jql, "maxResults": max_results_per_page}
+        payload = {
+            "jql": jql,
+            "maxResults": max_results_per_page,
+            "fields": ["summary", "assignee"]   # REQUIRED — never omit
+        }
         if next_page_token:
             payload["nextPageToken"] = next_page_token
 
@@ -109,10 +117,10 @@ HEADER="Authorization: Basic $AUTH"
 # Correct URL: GET /rest/api/3/filter/{id}  — NOT /filter/{id}/jql
 curl -s -H "$HEADER" "$SV_JIRA_BASE_URL/rest/api/3/filter/55922" | jq .jql
 
-# Search tickets — minimal safe fields only; fetch details per-issue via GET /issue/{key}
+# Search tickets — always include fields: summary + assignee (omitting returns only id, no key)
 curl -s -H "$HEADER" -H "Content-Type: application/json" \
   -X POST "$SV_JIRA_BASE_URL/rest/api/3/search/jql" \
-  -d '{"jql":"filter=55922","maxResults":200}'
+  -d '{"jql":"filter=55922","maxResults":200,"fields":["summary","assignee"]}'
 
 # Fetch full issue detail (safe — all fields work via this endpoint)
 curl -s -H "$HEADER" \
@@ -172,7 +180,7 @@ AND status NOT IN (Done, Cancelled, "Under Observation")
 AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview")
 ```
 
-**Do NOT include a `fields` array in the search payload for this query** — it causes 400 errors on this tenant. Send only `{"jql": "...", "maxResults": 200}`. Paginate using `nextPageToken` / `isLast` (not `startAt`). Count the returned issues per assignee using the `assignee.accountId` field in each returned issue object.
+**Always include `"fields": ["summary", "assignee"]` in the search payload** — omitting fields returns only `id` with no `key` or assignee data, making the result useless for workload counting. Use `issue["fields"]["assignee"]["accountId"]` to attribute each result to a team member. Paginate using `nextPageToken` / `isLast` (not `startAt`).
 
 **Query 2 — Under Observation tickets** (decide inclusion individually):
 
@@ -183,7 +191,7 @@ AND status = "Under Observation"
 AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview")
 ```
 
-Same approach: no `fields` param in the search payload. For each returned issue key, fetch full detail via `GET /rest/api/3/issue/{key}/comment?maxResults=3&orderBy=-created` to check for pending update requests.
+Same approach: include `"fields": ["summary", "assignee"]` in the search payload. For each returned issue key, fetch full detail via `GET /rest/api/3/issue/{key}/comment?maxResults=3&orderBy=-created` to check for pending update requests.
 - If the last comment (from anyone) contains a pending update request (`please update`, `any update`, `update?`, `following up`, `looking for update`, `any progress`, `status update`, `can you update`, `please respond`, `waiting for update`, `need an update`, `please provide`) → **include in workload count** (requester is waiting on a response)
 - Otherwise → **exclude from workload count**; add to that person's `obsCount` for the `(+X obs)` display suffix in notifications
 
@@ -196,17 +204,17 @@ Flag anyone at or over their `maxLoad`. Track `obsCount` (excluded under-observa
 
 Get all tickets from filter 55922 via `POST /rest/api/3/search/jql`.
 
-**Use the two-call pattern** — the search endpoint's `fields` parameter causes 400 errors when requesting certain field names. Fetch only ticket keys from search, then get full details per issue:
+**Use the two-call pattern** — only `["summary", "assignee"]` are safe in the search `fields` array; all other fields cause 400 errors. Get keys and assignee from search, then fetch per-issue detail separately:
 
 ```python
-# Step 1: Get all ticket keys from filter (no fields param — safest)
-search_payload = {"jql": "filter=55922", "maxResults": 200}
-# Paginate using nextPageToken / isLast (NOT startAt — see REST API Patterns)
-# Collect all issue keys
+# Step 1: Get all ticket keys and assignee from filter
+# Always include fields: ["summary", "assignee"] — omitting returns only id with no key
+search_payload = {"jql": "filter=55922", "maxResults": 200, "fields": ["summary", "assignee"]}
+# Paginate using nextPageToken / isLast
+# Each issue object will have: issue["key"], issue["fields"]["summary"], issue["fields"]["assignee"]
 
 # Step 2: For each key, fetch full details via GET
 # GET /rest/api/3/issue/{key}?fields=summary,assignee,priority,labels,description,status,updated
-# This endpoint safely returns all fields requested
 ```
 
 **Bucket 1 — Already Assigned** (assignee IS NOT EMPTY in the fetched issue detail):
@@ -339,7 +347,7 @@ For each team member, query their **active** tickets:
 JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In Progress") ORDER BY updated ASC
 ```
 
-**Do NOT include a `fields` array in this search payload** — causes 400 errors. Send `{"jql": "...", "maxResults": 200}` only. Paginate using `nextPageToken` / `isLast`. For each returned issue key, fetch full detail via `GET /rest/api/3/issue/{key}?fields=summary,priority,updated,labels,status` to get the fields needed for SLA calculation.
+**Always include `"fields": ["summary", "assignee"]` in the search payload** — omitting returns only `id` with no `key`. Paginate using `nextPageToken` / `isLast`. For each returned issue `key`, fetch full detail via `GET /rest/api/3/issue/{key}?fields=summary,priority,updated,labels,status` to get the fields needed for SLA calculation.
 
 **Workload / stale reconciliation — REQUIRED:**
 After stale detection completes, cross-check against the Step 2 workload counts. If a person has N stale tickets but their Step 2 workload count is 0 (or less than N), the Step 2 workload query failed silently. In that case, use `max(step2_count, stale_count)` as the displayed workload for that person, and flag the workload query failure in the Errors section of the Step 6 output and Channel 1 notification. Never display a workload of 0 for someone who has confirmed stale tickets.
