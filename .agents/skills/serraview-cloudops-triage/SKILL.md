@@ -428,8 +428,7 @@ For each ticket that breaches its SLA threshold:
 
 > **Note on `notifications.md` stale query instructions:** `notifications.md` references `startAt=0` and checking `total > 200` for pagination — those instructions are for the old `/search` endpoint. For `POST /rest/api/3/search/jql`, use `nextPageToken` / `isLast` instead (see REST API Patterns above). The `updated` field guard above also supersedes the bare `fromisoformat` call in `notifications.md`.
 
-Group remaining stale tickets by person. Include the inferred next step for each ticket.
-See `references/notifications.md` for exact format string and display rules.
+Group remaining stale tickets by person. Include the inferred next step for each ticket. Each ticket key must be a clickable hyperlink using `RichTextBlock` / `linked_key()` as described in Step 7b — do not render the key as plain text.
 
 ---
 
@@ -438,10 +437,80 @@ See `references/notifications.md` for exact format string and display rules.
 Use Python `requests` library (NOT curl) to POST to Channel 1 webhook.
 Build the message as a Python list of strings joined with `\n\n` — no HTML tags.
 
-**CRITICAL — Teams @mentions in Adaptive Cards:** Plain `@Name` text does NOT trigger real mentions in Microsoft Teams Adaptive Cards. You MUST use the `mention()` helper function from `references/notifications.md` for every team member reference. This produces `<at>Name</at>` tags in the text AND registers the corresponding entity in `msteams.entities`. Missing this causes the message to send but @mentions are silent — no notification reaches the person.
+**Jira ticket links — key text as clickable hyperlink:**
 
-Include:
-- Triage result (assignments made this run, or "No new tickets in filter 55922")
+Teams Adaptive Card `TextBlock` does not support inline hyperlinks. To make `CM-XXXXX` itself a clickable link, the card body must use **`RichTextBlock`** with `TextRun` elements instead of a single `TextBlock`. Switch the card body to a list of `RichTextBlock` elements, one per logical paragraph:
+
+```python
+JIRA_BASE_URL = os.environ.get("SV_JIRA_BASE_URL", "https://eptura.atlassian.net")
+
+def ticket_url(key):
+    return f"{JIRA_BASE_URL}/browse/{key}"
+
+def rich_text(text):
+    """Plain text run — no link."""
+    return {"type": "TextRun", "text": text}
+
+def linked_key(key):
+    """Ticket key as a clickable hyperlink TextRun."""
+    return {"type": "TextRun", "text": key,
+            "selectAction": {"type": "Action.OpenUrl", "url": ticket_url(key)}}
+
+def para(*runs):
+    """One RichTextBlock paragraph from a list of TextRun dicts."""
+    return {"type": "RichTextBlock", "inlines": list(runs)}
+```
+
+Build each ticket line as a `RichTextBlock` where the key is a linked `TextRun` and surrounding text is plain `TextRun`:
+
+```python
+# Stale ticket — key is the link, rest is plain text
+body_elements.append(para(
+    rich_text("• [S" + str(sn) + "] "),
+    linked_key(key),
+    rich_text(f" - {summary} | {status} | Last update: {elapsed}h ago (SLA: {sla}h)")
+))
+body_elements.append(para(rich_text(f"  ➡️ Next: {next_step}")))
+
+# Assignment line
+body_elements.append(para(
+    rich_text("✅ "),
+    linked_key(key),
+    rich_text(f" → {assignee_name} — {summary}")
+))
+
+# Manual triage line
+body_elements.append(para(
+    rich_text("• "),
+    linked_key(key),
+    rich_text(f" — {summary} ({reason})")
+))
+
+# For plain text sections (workload, headers, footer @mentions) use a plain TextBlock:
+body_elements.append({"type": "TextBlock", "text": plain_text_section, "wrap": True})
+```
+
+The final card payload `body` is a **mixed list** of `RichTextBlock` (for ticket lines with links) and `TextBlock` (for all other sections). The `msteams.entities` array for @mentions attaches to the card level as before — it works alongside `RichTextBlock` elements without change:
+
+```python
+payload = {
+    "type": "message",
+    "attachments": [{
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "content": {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.4",
+            "body": body_elements,   # mixed TextBlock + RichTextBlock list
+            "msteams": {"width": "Full", "entities": entities}
+        }
+    }]
+}
+```
+
+**Build strategy:** Start `body_elements = []`. Append a `TextBlock` for the header and each non-ticket section (stale person header, workload, footer). Append `RichTextBlock` paragraphs for each ticket line. This replaces the previous `parts` list / `"\n\n".join(parts)` approach — do not join into a single string anymore.
+
+**CRITICAL — Teams @mentions in Adaptive Cards:** Plain `@Name` text does NOT trigger real mentions in Microsoft Teams Adaptive Cards. You MUST use the `mention()` helper function from `references/notifications.md` for every team member reference. This produces `<at>Name</at>` tags in the text AND registers the corresponding entity in `msteams.entities`. Missing this causes the message to send but @mentions are silent — no notification reaches the person.
 - Stale tickets section — **only when `firstRunOfDay=true` AND stale tickets were found** (omit section entirely otherwise)
 - Manual triage alerts — omit section if empty
 - Errors — omit section if empty
