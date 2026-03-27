@@ -17,6 +17,26 @@ Use Jira REST API directly via curl or Python requests — do NOT use MCP tools.
 Read `.agents/skills/serraview-cloudops-triage/references/team-config.md` for team roster, routing rules, workload balancing, and ticket analysis signals.
 Read `.agents/skills/serraview-cloudops-triage/references/notifications.md` for Teams webhook URL, recipients, and payload format.
 
+## Python Environment
+
+**Required packages:** `requests` only. No other third-party packages are needed or permitted.
+
+Install once if not present:
+```bash
+apt-get install -y python3-requests 2>/dev/null || pip install --break-system-packages requests
+```
+
+**IST time — use stdlib only, never `pytz`:**
+```python
+from datetime import datetime, timezone, timedelta
+
+utc_now = datetime.now(timezone.utc)
+ist_now = utc_now + timedelta(hours=5, minutes=30)
+ist_hour = ist_now.hour  # integer 0-23, used for shift-aware routing
+```
+
+**No demo/simulation fallback:** If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing or a dependency fails to install, print a clear error and exit with code 1. Never create a mock or demo script as a substitute for the real triage. Real actions only.
+
 ## REST API Patterns
 
 **Always use `/rest/api/3/`** — do not fall back to `/rest/api/2/`. A 410 on the old `/rest/api/3/search` or `/rest/api/2/search` endpoint means those are deprecated — always use `POST /rest/api/3/search/jql` instead.
