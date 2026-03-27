@@ -296,8 +296,22 @@ Read `references/notifications.md` for webhook URLs, payload format, and stale/S
 **Determinism — do this first, before any query:**
 - Compute `now_utc = datetime.now(timezone.utc)` ONCE. Use it for every elapsed time calculation in this step. Never call `datetime.now()` again during stale detection.
 - Parse every Jira `updated` field as UTC: `datetime.fromisoformat(value.replace('Z', '+00:00'))`
-- Query with `maxResults=200 ORDER BY updated ASC`. Paginate if `total > 200`.
+- Query with `maxResults=200 ORDER BY updated ASC`. Paginate using `nextPageToken` / `isLast` (NOT `startAt` / `total`).
 - If any comment fetch fails → include the ticket in the stale list (fail-safe; never silently drop).
+
+**`updated` field guard — REQUIRED:**
+The `updated` field from `GET /rest/api/3/issue/{key}` may return an empty string or be absent for some tickets. Never crash on this. Apply this guard:
+
+```python
+raw_updated = issue_data.get("fields", {}).get("updated", "")
+if not raw_updated:
+    # Fail-safe: treat as maximally stale (epoch = always over SLA)
+    updated_utc = datetime.fromtimestamp(0, tz=timezone.utc)
+else:
+    updated_utc = datetime.fromisoformat(raw_updated.replace('Z', '+00:00'))
+```
+
+Tickets with a missing or empty `updated` field must be **included** in the stale list (not skipped, not logged as "Unknown"). Use the ticket's actual key from the search results.
 
 For each team member, query their **active** tickets:
 
@@ -306,6 +320,9 @@ JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In P
 ```
 
 **Do NOT include a `fields` array in this search payload** — causes 400 errors. Send `{"jql": "...", "maxResults": 200}` only. Paginate using `nextPageToken` / `isLast`. For each returned issue key, fetch full detail via `GET /rest/api/3/issue/{key}?fields=summary,priority,updated,labels,status` to get the fields needed for SLA calculation.
+
+**Workload / stale reconciliation — REQUIRED:**
+After stale detection completes, cross-check against the Step 2 workload counts. If a person has N stale tickets but their Step 2 workload count is 0 (or less than N), the Step 2 workload query failed silently. In that case, use `max(step2_count, stale_count)` as the displayed workload for that person, and flag the workload query failure in the Errors section of the Step 6 output and Channel 1 notification. Never display a workload of 0 for someone who has confirmed stale tickets.
 
 Check `elapsed_hours = (now_utc - updated_utc).total_seconds() / 3600` against SLA thresholds using weekend-adjusted business hours for S3/S4 (see `references/notifications.md` for full weekend adjustment calculation and examples).
 
@@ -325,6 +342,8 @@ For each ticket that breaches its SLA threshold:
 - Default (none of the above match) → `"Review and update ticket status"`
 
 **IMPORTANT**: Never include verbatim comment text in the next step. Summarise in your own words in at most 5 words. Do not quote or paraphrase sentences from the ticket.
+
+> **Note on `notifications.md` stale query instructions:** `notifications.md` references `startAt=0` and checking `total > 200` for pagination — those instructions are for the old `/search` endpoint. For `POST /rest/api/3/search/jql`, use `nextPageToken` / `isLast` instead (see REST API Patterns above). The `updated` field guard above also supersedes the bare `fromisoformat` call in `notifications.md`.
 
 Group remaining stale tickets by person. Include the inferred next step for each ticket.
 See `references/notifications.md` for exact format string and display rules.
