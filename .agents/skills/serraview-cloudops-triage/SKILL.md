@@ -4,6 +4,39 @@ description: "Intelligent triage and assignment of Jira Change Management (CM) t
 ---
 # Serraview CloudOps Ticket Triage
 
+## ⛔ CRITICAL — No Demo, No Mock, No Simulation (Read First)
+
+**This skill has exactly one valid execution mode: real Jira API calls using real credentials.**
+
+If any required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing or empty:
+
+```python
+import sys, os
+for var in ["SV_JIRA_BASE_URL", "SV_JIRA_EMAIL", "SV_JIRA_API_TOKEN"]:
+    if not os.environ.get(var):
+        print(f"ERROR: Required environment variable {var} is not set.", file=sys.stderr)
+        sys.exit(1)
+```
+
+**Print the error to stderr and exit with code 1. Then stop.**
+
+The following actions are absolutely forbidden regardless of any reasoning about "sandbox", "testing", "demo environment", or "no API access":
+
+- ❌ Do NOT create a demo script, simulation script, or mock triage script
+- ❌ Do NOT set fake/placeholder credentials (`demo-jira.example.com`, `demo@example.com`, `demo-token-123`, or any invented values)
+- ❌ Do NOT generate example triage output, fake ticket assignments, or simulated results
+- ❌ Do NOT proceed with any fallback if env vars are missing — exit immediately
+
+If the environment variables are not set, the correct and complete response is:
+
+```
+ERROR: Required environment variable SV_JIRA_BASE_URL is not set.
+```
+
+...followed by exit code 1. Nothing else. No demo. No workaround. No helpful simulation.
+
+---
+
 ## Jira API Configuration
 
 ```yaml
@@ -106,8 +139,12 @@ if "under observation" in comment_text:
 
 Apply `extract_comment_text()` to every comment body access throughout the script — under-observation detection, pending update request detection, next-step inference, and blocked signal detection.
 
-**No demo/simulation fallback — ever:** 
-- If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing → print a clear error to stderr and exit with code 1.
+**No demo/simulation fallback — ever:**
+
+> **See the `⛔ CRITICAL — No Demo, No Mock, No Simulation` section at the top of this file.** The rules below reinforce it.
+
+- If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing → **print error to stderr and `sys.exit(1)` immediately. Do not proceed. Do not set placeholder values.**
+- The words "sandbox", "demo environment", or "no real API access" are NOT justification to create mock credentials or a simulation script — they are a signal to exit with an error.
 - If the triage script crashes or encounters a KeyError, AttributeError, or any unhandled exception → let the exception propagate (do NOT catch it with a broad `except Exception` that swallows it). The traceback is more useful than a silent demo.
 - If any step fails → log the failure to stderr and continue with remaining steps where possible; never substitute fake/mock data for real Jira results.
 - Never create a `demo_triage.py`, `demo_output.py`, or any simulation script. Real actions from real Jira API only.
