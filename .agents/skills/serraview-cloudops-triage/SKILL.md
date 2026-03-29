@@ -17,6 +17,43 @@ Use Jira REST API directly via curl or Python requests — do NOT use MCP tools.
 Read `.agents/skills/serraview-cloudops-triage/references/team-config.md` for team roster, routing rules, workload balancing, and ticket analysis signals.
 Read `.agents/skills/serraview-cloudops-triage/references/notifications.md` for Teams webhook URL, recipients, and payload format.
 
+## ⛔ CRITICAL — stdout Safety (Read Before Writing Any Code)
+
+The Oz agent runtime parses **every byte on stdout** as a JSON object. Any plain string on stdout — including progress messages, debug prints, f-strings, or raw API responses — crashes the runtime with:
+
+```
+json: cannot unmarshal string into Go value of type map[string]interface {}
+```
+
+**These rules are absolute and apply to the entire script, from line 1:**
+
+1. **Every `print(...)` call must have `file=sys.stderr`** unless it is part of the Step 6 final markdown summary.
+2. **The Step 6 markdown tables are the ONLY content permitted on stdout.** Nothing else — ever.
+3. **Never print file contents to stdout.** When reading `team-config.md` or `notifications.md`, do NOT echo the file contents. Read silently into a variable.
+4. **Never print API responses, JSON payloads, or dicts to stdout.** All `json.dumps(...)` output goes to stderr only.
+5. **Never print f-strings containing `{` or `}` characters to stdout** (e.g. accountIds, URLs, payloads).
+6. **Never use bare `print(variable)` at the top level of the script** — wrap every diagnostic in `file=sys.stderr`.
+
+```python
+import sys
+
+# ✅ CORRECT — all diagnostics to stderr
+print("Reading team-config...", file=sys.stderr)
+print(f"Found {len(issues)} tickets", file=sys.stderr)
+print(f"Assigning {key} to {name}", file=sys.stderr)
+
+# ✅ CORRECT — only Step 6 summary tables to stdout
+print("## Triage Complete")
+print("| Ticket | Summary | Assigned To |")
+
+# ❌ WRONG — crashes runtime
+print("Reading team-config...")
+print(f"Response: {response.json()}")
+print(json.dumps(payload))
+```
+
+**If in doubt, add `file=sys.stderr`.** The Step 6 markdown tables are the only exception.
+
 ## Python Environment
 
 **Required packages:** `requests` only. No other third-party packages are needed or permitted.
@@ -79,10 +116,13 @@ Apply `extract_comment_text()` to every comment body access throughout the scrip
 **Script output — stdout safety rules:**
 The agent runtime parses the script's stdout as a JSON stream. Certain output patterns crash the runtime with `json: cannot unmarshal string into Go value of type map[string]interface {}`. To prevent this:
 
-- **Redirect all script progress logging to stderr**, not stdout: use `print("...", file=sys.stderr)` for all status messages, debug output, and intermediate results.
+> **See the `⛔ CRITICAL — stdout Safety` section at the top of this file for the full rule set.** The rules below are a summary; the top section takes precedence.
+
+- **Redirect ALL script progress logging to stderr** — use `print("...", file=sys.stderr)` for every status message, debug output, and intermediate result. No exceptions.
+- **Never echo file contents to stdout** — reading `team-config.md` or `notifications.md` must be silent; do NOT print the file content even partially.
 - **Never print raw JSON payloads to stdout** — the Adaptive Card payload, Jira API responses, or any dict/list printed via `print(json.dumps(...))` will crash the runtime if it reaches stdout.
-- **stdout is reserved for the final triage summary only** — the Step 6 markdown table output. Everything else goes to stderr.
-- **Avoid printing strings containing bare `{` or `}` to stdout** unless they are inside a markdown code block context.
+- **stdout is reserved for the Step 6 final triage summary only** — markdown tables and headers only. Everything else goes to stderr.
+- **Avoid printing strings containing bare `{` or `}` to stdout** unless they are inside a markdown table cell.
 
 ```python
 import sys
