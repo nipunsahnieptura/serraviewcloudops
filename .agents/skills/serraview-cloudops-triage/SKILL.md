@@ -260,6 +260,47 @@ curl -s -H "$HEADER" -H "Content-Type: application/json" \
 
 ## Workflow
 
+### Step 0: Execution Model (Follow Exactly)
+
+**The agent must write and execute the triage script as a file — never output script code inline to the terminal.**
+
+```
+1. Write the complete Python script to: /tmp/triage.py
+2. Execute it with: python3 /tmp/triage.py 2>/tmp/triage_stderr.log
+3. If it exits non-zero: cat /tmp/triage_stderr.log >&2 and stop
+4. The script's stdout IS the Step 6 summary — do not re-print or wrap it
+```
+
+**Why this matters:** The Oz runtime parses stdout as JSON. Any text output during script *creation* (agent narrating code, echoing file content, printing progress) crashes the runtime before the script even runs. Writing to a file first prevents this entirely.
+
+**Prohibited execution patterns:**
+- ❌ Do NOT use `python3 -c "..."` with inline code
+- ❌ Do NOT echo or `cat` the script contents to the terminal
+- ❌ Do NOT narrate what the script is doing line-by-line
+- ❌ Do NOT run the script without first checking env vars are set (see top of this file)
+
+**Correct execution sequence in shell:**
+```bash
+# 1. Check env vars first — exit immediately if any missing
+[ -z "$SV_JIRA_BASE_URL" ] && echo "ERROR: SV_JIRA_BASE_URL not set" >&2 && exit 1
+[ -z "$SV_JIRA_EMAIL" ]    && echo "ERROR: SV_JIRA_EMAIL not set" >&2    && exit 1
+[ -z "$SV_JIRA_API_TOKEN" ] && echo "ERROR: SV_JIRA_API_TOKEN not set" >&2 && exit 1
+
+# 2. Write script to file (silent — no echo of contents)
+cat > /tmp/triage.py << 'PYEOF'
+# ... full script ...
+PYEOF
+
+# 3. Run it — stderr to log, stdout is the summary
+python3 /tmp/triage.py 2>/tmp/triage_stderr.log
+EXIT_CODE=$?
+
+# 4. On failure, surface the error
+[ $EXIT_CODE -ne 0 ] && cat /tmp/triage_stderr.log >&2
+```
+
+---
+
 ### Step 1: Get Team Availability
 
 Check the `onLeave` parameter. Remove those members from the available assignee pool for this run.
