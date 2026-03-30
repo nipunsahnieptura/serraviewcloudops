@@ -11,11 +11,151 @@ Base URL: $SV_JIRA_BASE_URL (env var)
 Auth: Basic base64(SV_JIRA_EMAIL:SV_JIRA_API_TOKEN)
 Transition ID for Approve: "31"
 Filter ID: 55922
+MCP Server: https://mcp.atlassian.com/v1/sse  (Atlassian MCP — preferred when available)
 ```
 
-Use Jira REST API directly via curl or Python requests — do NOT use MCP tools.
 Read `.agents/skills/serraview-cloudops-triage/references/team-config.md` for team roster, routing rules, workload balancing, and ticket analysis signals.
 Read `.agents/skills/serraview-cloudops-triage/references/notifications.md` for Teams webhook URL, recipients, and payload format.
+
+## MCP vs REST API Strategy
+
+**Always prefer the Atlassian MCP server** when it is connected to the agent runtime. Fall back to direct Jira REST API calls (curl / Python `requests`) only when MCP is unavailable or a specific call fails.
+
+### Detecting MCP availability
+
+At the start of every run, probe MCP availability with a lightweight call:
+
+```python
+MCP_AVAILABLE = False
+
+def probe_mcp():
+    """Return True if the Atlassian MCP server responds successfully."""
+    global MCP_AVAILABLE
+    try:
+        # Use the MCP getAccessibleResources or equivalent lightweight tool.
+        # In an agentic context the agent runtime exposes MCP tools directly;
+        # call Atlassian:getAccessibleAtlassianResources and check for a valid cloudId.
+        result = call_mcp_tool("Atlassian:getAccessibleAtlassianResources")
+        if result and result.get("cloudId"):
+            MCP_AVAILABLE = True
+            print(f"MCP available — cloudId: {result['cloudId']}", file=sys.stderr)
+            return True
+    except Exception as e:
+        print(f"MCP probe failed: {e} — falling back to REST API", file=sys.stderr)
+    MCP_AVAILABLE = False
+    return False
+
+probe_mcp()
+```
+
+If the agent runtime natively exposes Atlassian MCP tools (e.g. `Atlassian:searchJiraIssuesUsingJql`, `Atlassian:getJiraIssue`, `Atlassian:editJiraIssue`, `Atlassian:transitionJiraIssue`), treat MCP as available without an explicit probe — just call them directly and catch exceptions.
+
+### MCP tool → REST API mapping
+
+| Operation | MCP Tool (preferred) | REST API fallback |
+|---|---|---|
+| Search tickets by JQL | `Atlassian:searchJiraIssuesUsingJql` | `POST /rest/api/3/search/jql` |
+| Fetch single issue | `Atlassian:getJiraIssue` | `GET /rest/api/3/issue/{key}` |
+| Assign issue | `Atlassian:editJiraIssue` (assignee field) | `PUT /rest/api/3/issue/{key}/assignee` |
+| Transition issue | `Atlassian:transitionJiraIssue` | `POST /rest/api/3/issue/{key}/transitions` |
+| Add label | `Atlassian:editJiraIssue` (labels field) | `PUT /rest/api/3/issue/{key}` |
+| Add comment | `Atlassian:addCommentToJiraIssue` | `POST /rest/api/3/issue/{key}/comment` |
+| Fetch filter JQL | `Atlassian:fetchAtlassian` (filter ARI) | `GET /rest/api/3/filter/55922` |
+| Get transitions | `Atlassian:getTransitionsForJiraIssue` | `GET /rest/api/3/issue/{key}/transitions` |
+
+### Per-call fallback pattern
+
+Wrap every MCP call so that a failure automatically retries via REST:
+
+```python
+def jira_search(jql, fields=None):
+    """Search Jira issues — MCP first, REST fallback."""
+    if MCP_AVAILABLE:
+        try:
+            result = call_mcp_tool("Atlassian:searchJiraIssuesUsingJql", jql=jql)
+            # MCP returns issues directly; normalise to the same shape as REST
+            return normalise_mcp_search(result)
+        except Exception as e:
+            print(f"MCP search failed ({e}), falling back to REST", file=sys.stderr)
+    # REST fallback — always include fields: ["summary", "assignee"]
+    return rest_search_jql(jql, fields=fields or ["summary", "assignee"])
+
+
+def jira_get_issue(key, fields=None):
+    """Fetch a single issue — MCP first, REST fallback."""
+    if MCP_AVAILABLE:
+        try:
+            result = call_mcp_tool("Atlassian:getJiraIssue", issueIdOrKey=key)
+            return normalise_mcp_issue(result)
+        except Exception as e:
+            print(f"MCP getIssue({key}) failed ({e}), falling back to REST", file=sys.stderr)
+    field_str = ",".join(fields or ["summary","assignee","priority","labels","description","status","updated"])
+    return rest_get_issue(key, fields=field_str)
+
+
+def jira_assign(key, account_id):
+    """Assign an issue — MCP first, REST fallback."""
+    if MCP_AVAILABLE:
+        try:
+            call_mcp_tool("Atlassian:editJiraIssue",
+                          issueIdOrKey=key,
+                          fields={"assignee": {"accountId": account_id}})
+            return
+        except Exception as e:
+            print(f"MCP assign({key}) failed ({e}), falling back to REST", file=sys.stderr)
+    rest_assign(key, account_id)
+
+
+def jira_transition(key, transition_id="31"):
+    """Transition an issue — MCP first, REST fallback."""
+    if MCP_AVAILABLE:
+        try:
+            call_mcp_tool("Atlassian:transitionJiraIssue",
+                          issueIdOrKey=key,
+                          transitionId=transition_id)
+            return
+        except Exception as e:
+            print(f"MCP transition({key}) failed ({e}), falling back to REST", file=sys.stderr)
+    rest_transition(key, transition_id)
+
+
+def jira_add_label(key, label):
+    """Add a label — MCP first, REST fallback."""
+    if MCP_AVAILABLE:
+        try:
+            call_mcp_tool("Atlassian:editJiraIssue",
+                          issueIdOrKey=key,
+                          update={"labels": [{"add": label}]})
+            return
+        except Exception as e:
+            print(f"MCP addLabel({key}, {label}) failed ({e}), falling back to REST", file=sys.stderr)
+    rest_add_label(key, label)
+```
+
+### MCP response normalisation
+
+MCP responses may differ in shape from raw REST JSON. Normalise before passing to shared logic:
+
+```python
+def normalise_mcp_search(mcp_result):
+    """Normalise MCP search result to match REST /search/jql shape."""
+    # MCP may return a list directly or wrap in {"issues": [...]}
+    if isinstance(mcp_result, list):
+        return mcp_result
+    return mcp_result.get("issues", [])
+
+
+def normalise_mcp_issue(mcp_result):
+    """Normalise a single MCP issue to match REST GET /issue/{key} shape."""
+    # MCP typically returns the issue dict directly — pass through if fields present
+    if "fields" in mcp_result:
+        return mcp_result
+    # Some MCP tools flatten fields to top level — re-wrap for compatibility
+    key = mcp_result.get("key") or mcp_result.get("id")
+    return {"key": key, "id": mcp_result.get("id"), "fields": mcp_result}
+```
+
+> **Tenant quirks still apply when using REST fallback.** All constraints in the REST API Patterns section below (fields array restriction, cursor pagination, ADF extraction, etc.) apply to REST fallback calls only — MCP tools are not subject to those raw API constraints.
 
 ## Python Environment
 
@@ -70,7 +210,7 @@ if "under observation" in comment_text:
 Apply `extract_comment_text()` to every comment body access throughout the script — under-observation detection, pending update request detection, next-step inference, and blocked signal detection.
 
 **No demo/simulation fallback — ever:** 
-- If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing → print a clear error to stderr and exit with code 1.
+- If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing AND MCP is also unavailable → print a clear error to stderr and exit with code 1. If MCP is available, the REST env vars are used only by fallback helpers; their absence is non-fatal unless MCP also fails.
 - If the triage script crashes or encounters a KeyError, AttributeError, or any unhandled exception → let the exception propagate (do NOT catch it with a broad `except Exception` that swallows it). The traceback is more useful than a silent demo.
 - If any step fails → log the failure to stderr and continue with remaining steps where possible; never substitute fake/mock data for real Jira results.
 - Never create a `demo_triage.py`, `demo_output.py`, or any simulation script. Real actions from real Jira API only.
@@ -96,9 +236,45 @@ print("## Triage Complete")
 print("| Ticket | Summary | Assigned To |")
 ```
 
-## REST API Patterns
+## REST API Patterns (Fallback — used when MCP is unavailable or a call fails)
 
 **Always use `/rest/api/3/`** — do not fall back to `/rest/api/2/`. A 410 on the old `/rest/api/3/search` or `/rest/api/2/search` endpoint means those are deprecated — always use `POST /rest/api/3/search/jql` instead.
+
+The REST helper functions used by the fallback wrappers in the MCP Strategy section:
+
+```python
+import requests, base64, os, sys
+
+def _rest_headers():
+    email = os.environ["SV_JIRA_EMAIL"]
+    token = os.environ["SV_JIRA_API_TOKEN"]
+    creds = base64.b64encode(f"{email}:{token}".encode()).decode()
+    return {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
+
+def rest_get_issue(key, fields="summary,assignee,priority,labels,description,status,updated"):
+    base_url = os.environ["SV_JIRA_BASE_URL"]
+    r = requests.get(f"{base_url}/rest/api/3/issue/{key}?fields={fields}", headers=_rest_headers())
+    r.raise_for_status()
+    return r.json()
+
+def rest_assign(key, account_id):
+    base_url = os.environ["SV_JIRA_BASE_URL"]
+    r = requests.put(f"{base_url}/rest/api/3/issue/{key}/assignee",
+                     headers=_rest_headers(), json={"accountId": account_id})
+    r.raise_for_status()
+
+def rest_transition(key, transition_id="31"):
+    base_url = os.environ["SV_JIRA_BASE_URL"]
+    r = requests.post(f"{base_url}/rest/api/3/issue/{key}/transitions",
+                      headers=_rest_headers(), json={"transition": {"id": transition_id}})
+    r.raise_for_status()
+
+def rest_add_label(key, label):
+    base_url = os.environ["SV_JIRA_BASE_URL"]
+    r = requests.put(f"{base_url}/rest/api/3/issue/{key}",
+                     headers=_rest_headers(), json={"update": {"labels": [{"add": label}]}})
+    r.raise_for_status()
+```
 
 ### Critical: `/rest/api/3/search/jql` behaves differently from the old `/search`
 
@@ -212,9 +388,14 @@ In code: `max_load = config.get("maxLoad", 5)` — never `config["maxLoad"]`.
 
 ### Step 2: Query Current Workload
 
-First, fetch filter 55922 to confirm the Serraview category condition:
+First, fetch filter 55922 to confirm the Serraview category condition.
+
+Use `jira_search` (MCP-first wrapper) or, if you need the raw filter JQL, call:
+- **MCP:** `Atlassian:fetchAtlassian` with the filter ARI (`ari:cloud:jira::<cloudId>:filter/55922`)
+- **REST fallback:** `GET /rest/api/3/filter/55922` → extract `.jql`
 
 ```bash
+# REST fallback only
 curl -s -H "$HEADER" "$SV_JIRA_BASE_URL/rest/api/3/filter/55922" | jq .jql
 ```
 
@@ -235,7 +416,7 @@ AND status NOT IN (Done, Cancelled, "Under Observation")
 AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview")
 ```
 
-**Always include `"fields": ["summary", "assignee"]` in the search payload** — omitting fields returns only `id` with no `key` or assignee data, making the result useless for workload counting. Use `issue["fields"]["assignee"]["accountId"]` to attribute each result to a team member. Paginate using `nextPageToken` / `isLast` (not `startAt`).
+**Use `jira_search(jql)` for both queries** — it tries MCP first and falls back to REST automatically. When using the REST fallback, always include `"fields": ["summary", "assignee"]` in the search payload; omitting returns only `id` with no `key` or assignee data. Use `issue["fields"]["assignee"]["accountId"]` to attribute each result to a team member. Paginate using `nextPageToken` / `isLast` (not `startAt`).
 
 **Query 2 — Under Observation tickets** (decide inclusion individually):
 
@@ -257,24 +438,27 @@ Flag anyone at or over their `maxLoad`. Track `obsCount` (excluded under-observa
 
 ### Step 3: Fetch Tickets from Filter 55922
 
-Get all tickets from filter 55922 via `POST /rest/api/3/search/jql`.
+Get all tickets from filter 55922.
 
-**Use the two-call pattern** — only `["summary", "assignee"]` are safe in the search `fields` array; all other fields cause 400 errors. Get keys and assignee from search, then fetch per-issue detail separately:
+**Use `jira_search("filter=55922")` (MCP-first wrapper).** If MCP is unavailable, falls back to `POST /rest/api/3/search/jql` with the two-call pattern below.
+
+**Two-call pattern (REST fallback only)** — only `["summary", "assignee"]` are safe in the search `fields` array on this tenant; all other fields cause 400 errors. Get keys from search, then fetch per-issue detail separately:
 
 ```python
-# Step 1: Get all ticket keys and assignee from filter
+# Step 1: Get all ticket keys and assignee from filter (REST fallback)
 # Always include fields: ["summary", "assignee"] — omitting returns only id with no key
 search_payload = {"jql": "filter=55922", "maxResults": 200, "fields": ["summary", "assignee"]}
 # Paginate using nextPageToken / isLast
 # Each issue object will have: issue["key"], issue["fields"]["summary"], issue["fields"]["assignee"]
 
-# Step 2: For each key, fetch full details via GET
-# GET /rest/api/3/issue/{key}?fields=summary,assignee,priority,labels,description,status,updated
+# Step 2: For each key, fetch full details
+# Use jira_get_issue(key) — MCP first, REST fallback
+# REST fallback: GET /rest/api/3/issue/{key}?fields=summary,assignee,priority,labels,description,status,updated
 ```
 
 **Bucket 1 — Already Assigned** (assignee IS NOT EMPTY in the fetched issue detail):
 - DO NOT reassign
-- POST to `/rest/api/3/issue/{issueKey}/transitions` with `{"transition":{"id":"31"}}` to move to Approved
+- Call `jira_transition(issueKey, "31")` to move to Approved (MCP first, REST fallback)
 - Output: Auto-Transitioned (Already Assigned)
 
 > Filter 55922 targets "New Issue" status, non-S1 tickets. S1 tickets are handled by a separate event-based trigger and will not appear here.
@@ -317,16 +501,16 @@ Apply workload balancing and skill/will matching. Never fail to assign — if al
 ### Step 5: Execute Assignments
 
 **Blocked/Dev/QA tickets:**
-PUT `/rest/api/3/issue/{issueKey}` with `{"update":{"labels":[{"add":"ClopsManualTriage"}]}}`.
+Call `jira_add_label(issueKey, "ClopsManualTriage")` (MCP first, REST fallback).
 Do NOT assign or transition.
 
 **Routable tickets — always assign BEFORE transitioning:**
-1. PUT `/rest/api/3/issue/{issueKey}/assignee` with `{"accountId":"ACCOUNT_ID"}` — use the accountId from `references/team-config.md`
-2. POST `/rest/api/3/issue/{issueKey}/transitions` with `{"transition":{"id":"31"}}`
+1. Call `jira_assign(issueKey, account_id)` — use the accountId from `references/team-config.md` (MCP first: `Atlassian:editJiraIssue`; REST fallback: `PUT /rest/api/3/issue/{key}/assignee`)
+2. Call `jira_transition(issueKey, "31")` (MCP first: `Atlassian:transitionJiraIssue`; REST fallback: `POST /rest/api/3/issue/{key}/transitions`)
 
 > Order matters: assign first, then transition. This ensures the ticket is never briefly in Approved status without an assignee.
 
-If the assignment call fails: do not transition. Log the error, add to Skipped (API Error), continue.
+If the assignment call fails (MCP or REST): do not transition. Log the error, add to Skipped (API Error), continue.
 
 ### Step 6: Output Summary
 
@@ -402,7 +586,7 @@ For each team member, query their **active** tickets:
 JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In Progress") ORDER BY updated ASC
 ```
 
-**Always include `"fields": ["summary", "assignee"]` in the search payload** — omitting returns only `id` with no `key`. Paginate using `nextPageToken` / `isLast`. For each returned issue `key`, fetch full detail via `GET /rest/api/3/issue/{key}?fields=summary,priority,updated,labels,status` to get the fields needed for SLA calculation.
+**Use `jira_search(jql)` (MCP-first wrapper)** for each per-person stale query. When using the REST fallback, always include `"fields": ["summary", "assignee"]` in the search payload — omitting returns only `id` with no `key`. Paginate using `nextPageToken` / `isLast`. For each returned issue `key`, call `jira_get_issue(key, fields="summary,priority,updated,labels,status")` (MCP first, REST fallback) to get the fields needed for SLA calculation.
 
 **Workload / stale reconciliation — REQUIRED:**
 After stale detection completes, cross-check against the Step 2 workload counts. If a person has N stale tickets but their Step 2 workload count is 0 (or less than N), the Step 2 workload query failed silently. In that case, use `max(step2_count, stale_count)` as the displayed workload for that person, and flag the workload query failure in the Errors section of the Step 6 output and Channel 1 notification. Never display a workload of 0 for someone who has confirmed stale tickets.
@@ -435,6 +619,9 @@ Group remaining stale tickets by person. Include the inferred next step for each
 **7b. Send Channel 1 (always send, every run):**
 
 Use Python `requests` library (NOT curl) to POST to Channel 1 webhook.
+
+> **Note:** Teams webhook notifications always use direct HTTP POST via `requests` — MCP has no Teams webhook tool. The MCP strategy applies only to Jira operations above.
+
 Build the message as a Python list of strings joined with `\n\n` — no HTML tags.
 
 **Jira ticket links — key text as clickable hyperlink:**
@@ -524,6 +711,8 @@ Channel 1 is always sent regardless of content. See `references/notifications.md
 
 Use Python `requests` library (NOT curl) to POST to Channel 2 webhook.
 
+> **Note:** Same as Channel 1 — Teams webhook calls always use direct HTTP POST via `requests`, not MCP.
+
 **CRITICAL — Teams @mentions:** Same rule as Channel 1 — always use `mention()` from `references/notifications.md`. Never use plain `@Name` text.
 
 Send ONLY if at least one of the following is true:
@@ -560,14 +749,15 @@ User: "Triage the unassigned tickets, Yuan Yang is on leave today"
 ```
 
 1. Exclude Yuan Yang from available assignees
-2. Note current IST time for shift-aware routing
-3. Query filter 55922 and current workloads (Queries 1 + 2)
-4. Transition already-assigned tickets (Bucket 1)
-5. Analyse and route unassigned tickets (Buckets 2 & 3)
+2. Probe MCP availability (`Atlassian:getAccessibleAtlassianResources`) — set `MCP_AVAILABLE`
+3. Note current IST time for shift-aware routing
+4. Query filter 55922 and current workloads via `jira_search()` (MCP first, REST fallback)
+5. Transition already-assigned tickets (Bucket 1) via `jira_transition()` wrapper
+6. Analyse and route unassigned tickets (Buckets 2 & 3)
    - Boeing keyword in any ticket → Michael Soga regardless of shift
    - DB tickets normally routed to Yuan Yang → escalate to Mridul Raina, then Deevanshu Gakhar
-6. Assign first, then transition for each routable ticket
-7. Send Channel 1 (always); skip stale detection since `firstRunOfDay` not passed (defaults to `false`)
-8. Send Channel 2 only if assignments were made
+7. Assign via `jira_assign()`, then transition via `jira_transition()` for each routable ticket
+8. Send Channel 1 (always via `requests` POST — not MCP); skip stale detection since `firstRunOfDay` not passed (defaults to `false`)
+9. Send Channel 2 only if assignments were made
 
 > To include stale detection and daily sync alerts, pass `firstRunOfDay=true` on the first run of each day.
