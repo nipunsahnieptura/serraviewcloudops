@@ -399,7 +399,7 @@ Tickets with a missing or empty `updated` field must be **included** in the stal
 For each team member, query their **active** tickets:
 
 ```
-JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In Progress") AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview") ORDER BY updated ASC
+JQL: project = CM AND assignee = "<accountId>" AND status IN ("New Issue", "In Progress") ORDER BY updated ASC
 ```
 
 **Always include `"fields": ["summary", "assignee"]` in the search payload** — omitting returns only `id` with no `key`. Paginate using `nextPageToken` / `isLast`. For each returned issue `key`, fetch full detail via `GET /rest/api/3/issue/{key}?fields=summary,priority,updated,labels,status` to get the fields needed for SLA calculation.
