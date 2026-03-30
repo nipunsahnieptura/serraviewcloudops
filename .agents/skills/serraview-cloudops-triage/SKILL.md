@@ -4,39 +4,6 @@ description: "Intelligent triage and assignment of Jira Change Management (CM) t
 ---
 # Serraview CloudOps Ticket Triage
 
-## ⛔ CRITICAL — No Demo, No Mock, No Simulation (Read First)
-
-**This skill has exactly one valid execution mode: real Jira API calls using real credentials.**
-
-If any required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing or empty:
-
-```python
-import sys, os
-for var in ["SV_JIRA_BASE_URL", "SV_JIRA_EMAIL", "SV_JIRA_API_TOKEN"]:
-    if not os.environ.get(var):
-        print(f"ERROR: Required environment variable {var} is not set.", file=sys.stderr)
-        sys.exit(1)
-```
-
-**Print the error to stderr and exit with code 1. Then stop.**
-
-The following actions are absolutely forbidden regardless of any reasoning about "sandbox", "testing", "demo environment", or "no API access":
-
-- ❌ Do NOT create a demo script, simulation script, or mock triage script
-- ❌ Do NOT set fake/placeholder credentials (`demo-jira.example.com`, `demo@example.com`, `demo-token-123`, or any invented values)
-- ❌ Do NOT generate example triage output, fake ticket assignments, or simulated results
-- ❌ Do NOT proceed with any fallback if env vars are missing — exit immediately
-
-If the environment variables are not set, the correct and complete response is:
-
-```
-ERROR: Required environment variable SV_JIRA_BASE_URL is not set.
-```
-
-...followed by exit code 1. Nothing else. No demo. No workaround. No helpful simulation.
-
----
-
 ## Jira API Configuration
 
 ```yaml
@@ -49,43 +16,6 @@ Filter ID: 55922
 Use Jira REST API directly via curl or Python requests — do NOT use MCP tools.
 Read `.agents/skills/serraview-cloudops-triage/references/team-config.md` for team roster, routing rules, workload balancing, and ticket analysis signals.
 Read `.agents/skills/serraview-cloudops-triage/references/notifications.md` for Teams webhook URL, recipients, and payload format.
-
-## ⛔ CRITICAL — stdout Safety (Read Before Writing Any Code)
-
-The Oz agent runtime parses **every byte on stdout** as a JSON object. Any plain string on stdout — including progress messages, debug prints, f-strings, or raw API responses — crashes the runtime with:
-
-```
-json: cannot unmarshal string into Go value of type map[string]interface {}
-```
-
-**These rules are absolute and apply to the entire script, from line 1:**
-
-1. **Every `print(...)` call must have `file=sys.stderr`** unless it is part of the Step 6 final markdown summary.
-2. **The Step 6 markdown tables are the ONLY content permitted on stdout.** Nothing else — ever.
-3. **Never print file contents to stdout.** When reading `team-config.md` or `notifications.md`, do NOT echo the file contents. Read silently into a variable.
-4. **Never print API responses, JSON payloads, or dicts to stdout.** All `json.dumps(...)` output goes to stderr only.
-5. **Never print f-strings containing `{` or `}` characters to stdout** (e.g. accountIds, URLs, payloads).
-6. **Never use bare `print(variable)` at the top level of the script** — wrap every diagnostic in `file=sys.stderr`.
-
-```python
-import sys
-
-# ✅ CORRECT — all diagnostics to stderr
-print("Reading team-config...", file=sys.stderr)
-print(f"Found {len(issues)} tickets", file=sys.stderr)
-print(f"Assigning {key} to {name}", file=sys.stderr)
-
-# ✅ CORRECT — only Step 6 summary tables to stdout
-print("## Triage Complete")
-print("| Ticket | Summary | Assigned To |")
-
-# ❌ WRONG — crashes runtime
-print("Reading team-config...")
-print(f"Response: {response.json()}")
-print(json.dumps(payload))
-```
-
-**If in doubt, add `file=sys.stderr`.** The Step 6 markdown tables are the only exception.
 
 ## Python Environment
 
@@ -139,12 +69,8 @@ if "under observation" in comment_text:
 
 Apply `extract_comment_text()` to every comment body access throughout the script — under-observation detection, pending update request detection, next-step inference, and blocked signal detection.
 
-**No demo/simulation fallback — ever:**
-
-> **See the `⛔ CRITICAL — No Demo, No Mock, No Simulation` section at the top of this file.** The rules below reinforce it.
-
-- If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing → **print error to stderr and `sys.exit(1)` immediately. Do not proceed. Do not set placeholder values.**
-- The words "sandbox", "demo environment", or "no real API access" are NOT justification to create mock credentials or a simulation script — they are a signal to exit with an error.
+**No demo/simulation fallback — ever:** 
+- If a required environment variable (`SV_JIRA_BASE_URL`, `SV_JIRA_EMAIL`, `SV_JIRA_API_TOKEN`) is missing → print a clear error to stderr and exit with code 1.
 - If the triage script crashes or encounters a KeyError, AttributeError, or any unhandled exception → let the exception propagate (do NOT catch it with a broad `except Exception` that swallows it). The traceback is more useful than a silent demo.
 - If any step fails → log the failure to stderr and continue with remaining steps where possible; never substitute fake/mock data for real Jira results.
 - Never create a `demo_triage.py`, `demo_output.py`, or any simulation script. Real actions from real Jira API only.
@@ -153,13 +79,10 @@ Apply `extract_comment_text()` to every comment body access throughout the scrip
 **Script output — stdout safety rules:**
 The agent runtime parses the script's stdout as a JSON stream. Certain output patterns crash the runtime with `json: cannot unmarshal string into Go value of type map[string]interface {}`. To prevent this:
 
-> **See the `⛔ CRITICAL — stdout Safety` section at the top of this file for the full rule set.** The rules below are a summary; the top section takes precedence.
-
-- **Redirect ALL script progress logging to stderr** — use `print("...", file=sys.stderr)` for every status message, debug output, and intermediate result. No exceptions.
-- **Never echo file contents to stdout** — reading `team-config.md` or `notifications.md` must be silent; do NOT print the file content even partially.
+- **Redirect all script progress logging to stderr**, not stdout: use `print("...", file=sys.stderr)` for all status messages, debug output, and intermediate results.
 - **Never print raw JSON payloads to stdout** — the Adaptive Card payload, Jira API responses, or any dict/list printed via `print(json.dumps(...))` will crash the runtime if it reaches stdout.
-- **stdout is reserved for the Step 6 final triage summary only** — markdown tables and headers only. Everything else goes to stderr.
-- **Avoid printing strings containing bare `{` or `}` to stdout** unless they are inside a markdown table cell.
+- **stdout is reserved for the final triage summary only** — the Step 6 markdown table output. Everything else goes to stderr.
+- **Avoid printing strings containing bare `{` or `}` to stdout** unless they are inside a markdown code block context.
 
 ```python
 import sys
@@ -259,47 +182,6 @@ curl -s -H "$HEADER" -H "Content-Type: application/json" \
 ```
 
 ## Workflow
-
-### Step 0: Execution Model (Follow Exactly)
-
-**The agent must write and execute the triage script as a file — never output script code inline to the terminal.**
-
-```
-1. Write the complete Python script to: /tmp/triage.py
-2. Execute it with: python3 /tmp/triage.py 2>/tmp/triage_stderr.log
-3. If it exits non-zero: cat /tmp/triage_stderr.log >&2 and stop
-4. The script's stdout IS the Step 6 summary — do not re-print or wrap it
-```
-
-**Why this matters:** The Oz runtime parses stdout as JSON. Any text output during script *creation* (agent narrating code, echoing file content, printing progress) crashes the runtime before the script even runs. Writing to a file first prevents this entirely.
-
-**Prohibited execution patterns:**
-- ❌ Do NOT use `python3 -c "..."` with inline code
-- ❌ Do NOT echo or `cat` the script contents to the terminal
-- ❌ Do NOT narrate what the script is doing line-by-line
-- ❌ Do NOT run the script without first checking env vars are set (see top of this file)
-
-**Correct execution sequence in shell:**
-```bash
-# 1. Check env vars first — exit immediately if any missing
-[ -z "$SV_JIRA_BASE_URL" ] && echo "ERROR: SV_JIRA_BASE_URL not set" >&2 && exit 1
-[ -z "$SV_JIRA_EMAIL" ]    && echo "ERROR: SV_JIRA_EMAIL not set" >&2    && exit 1
-[ -z "$SV_JIRA_API_TOKEN" ] && echo "ERROR: SV_JIRA_API_TOKEN not set" >&2 && exit 1
-
-# 2. Write script to file (silent — no echo of contents)
-cat > /tmp/triage.py << 'PYEOF'
-# ... full script ...
-PYEOF
-
-# 3. Run it — stderr to log, stdout is the summary
-python3 /tmp/triage.py 2>/tmp/triage_stderr.log
-EXIT_CODE=$?
-
-# 4. On failure, surface the error
-[ $EXIT_CODE -ne 0 ] && cat /tmp/triage_stderr.log >&2
-```
-
----
 
 ### Step 1: Get Team Availability
 
