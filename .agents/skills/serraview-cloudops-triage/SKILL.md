@@ -50,18 +50,37 @@ probe_mcp()
 
 If the agent runtime natively exposes Atlassian MCP tools (e.g. `Atlassian:searchJiraIssuesUsingJql`, `Atlassian:getJiraIssue`, `Atlassian:editJiraIssue`, `Atlassian:transitionJiraIssue`), treat MCP as available without an explicit probe — just call them directly and catch exceptions.
 
+### Known MCP Quirks (Eptura Atlassian tenant — confirmed in live execution)
+
+These are not theoretical — they were observed during real triage runs and must be coded around:
+
+| Quirk | Symptom | Fix |
+|---|---|---|
+| `editJiraIssue` assignee silent failure | Returns `"Issue updated successfully"` but assignee stays `"Unassigned"` on follow-up GET | **Always use REST** `PUT /rest/api/3/issue/{key}/assignee` for assignment. Never use MCP for this. |
+| `transitionJiraIssue` requires assignee pre-set | Fails with `"Field Assignee is required"` even if ticket was just "assigned" via MCP | Pre-verify assignee via REST GET before calling any transition (MCP or REST) |
+| `editJiraIssue` label update works | Labels (e.g. `ClopsManualTriage`) **do** persist correctly via MCP `update={"labels": [{"add": "..."}]}` | No workaround needed — MCP is safe for labels |
+| `searchJiraIssuesUsingJql` returns `total: -1` | The `total` field is always `-1`; pagination uses `next_page_token` / `isLast` | Same pattern as REST fallback — never rely on `total`, use `isLast` |
+| `searchJiraIssuesUsingJql` with `filter=55922` returns empty | MCP returned 0 issues for filter 55922 even when tickets exist in Jira — observed in live execution | Fall back to explicit `SERRAVIEW_SCOPE_JQL` hardcoded in Step 3. **Never widen to unscoped `project = CM` queries.** |
+
+---
+
 ### MCP tool → REST API mapping
 
 | Operation | MCP Tool (preferred) | REST API fallback |
 |---|---|---|
 | Search tickets by JQL | `Atlassian:searchJiraIssuesUsingJql` | `POST /rest/api/3/search/jql` |
 | Fetch single issue | `Atlassian:getJiraIssue` | `GET /rest/api/3/issue/{key}` |
-| Assign issue | `Atlassian:editJiraIssue` (assignee field) | `PUT /rest/api/3/issue/{key}/assignee` |
+| **Assign issue** | ⚠️ **REST only** — see quirk note below | `PUT /rest/api/3/issue/{key}/assignee` |
 | Transition issue | `Atlassian:transitionJiraIssue` | `POST /rest/api/3/issue/{key}/transitions` |
 | Add label | `Atlassian:editJiraIssue` (labels field) | `PUT /rest/api/3/issue/{key}` |
 | Add comment | `Atlassian:addCommentToJiraIssue` | `POST /rest/api/3/issue/{key}/comment` |
 | Fetch filter JQL | `Atlassian:fetchAtlassian` (filter ARI) | `GET /rest/api/3/filter/55922` |
 | Get transitions | `Atlassian:getTransitionsForJiraIssue` | `GET /rest/api/3/issue/{key}/transitions` |
+
+> ⚠️ **Known MCP quirk — assignee does NOT persist via `editJiraIssue`:**
+> Confirmed in live execution: `Atlassian:editJiraIssue` with `fields={"assignee": {"accountId": "..."}}` returns `"Issue updated successfully"` but a follow-up `getJiraIssue` call shows `"Unassigned"` — the assignment silently fails. As a direct consequence, `transitionJiraIssue` then fails with `"Field Assignee is required"`. **Always use the REST API for assignment** (`PUT /rest/api/3/issue/{key}/assignee`), even when MCP is otherwise available. Do not attempt to detect or work around this at runtime — just skip MCP for this operation entirely.
+>
+> Similarly, **`Atlassian:transitionJiraIssue` requires the assignee field to be already set**. Since assignment must go through REST, always complete the REST assign call and verify the assignee is non-empty before calling the transition (MCP or REST).
 
 ### Per-call fallback pattern
 
@@ -94,20 +113,26 @@ def jira_get_issue(key, fields=None):
 
 
 def jira_assign(key, account_id):
-    """Assign an issue — MCP first, REST fallback."""
-    if MCP_AVAILABLE:
-        try:
-            call_mcp_tool("Atlassian:editJiraIssue",
-                          issueIdOrKey=key,
-                          fields={"assignee": {"accountId": account_id}})
-            return
-        except Exception as e:
-            print(f"MCP assign({key}) failed ({e}), falling back to REST", file=sys.stderr)
+    """Assign an issue — always REST (MCP editJiraIssue silently fails for assignee)."""
+    # NOTE: Do NOT attempt MCP for assignment. Atlassian:editJiraIssue accepts the call
+    # but the assignee field does not persist on this tenant. REST is the only reliable path.
     rest_assign(key, account_id)
+    # Verify the assignment actually took (guard against silent failure)
+    verify = rest_get_issue(key, fields="assignee")
+    if verify.get("fields", {}).get("assignee") is None:
+        raise RuntimeError(f"Assignment of {key} to {account_id} did not persist after REST call")
 
 
 def jira_transition(key, transition_id="31"):
-    """Transition an issue — MCP first, REST fallback."""
+    """Transition an issue — MCP first, REST fallback.
+    
+    IMPORTANT: Atlassian:transitionJiraIssue will fail with 'Field Assignee is required'
+    if the issue is unassigned. Always call jira_assign() and verify before calling this.
+    """
+    # Pre-check: confirm assignee is set before attempting transition
+    issue = rest_get_issue(key, fields="assignee")
+    if issue.get("fields", {}).get("assignee") is None:
+        raise RuntimeError(f"Cannot transition {key}: assignee is not set. Call jira_assign() first.")
     if MCP_AVAILABLE:
         try:
             call_mcp_tool("Atlassian:transitionJiraIssue",
@@ -214,7 +239,7 @@ Apply `extract_comment_text()` to every comment body access throughout the scrip
 - If the triage script crashes or encounters a KeyError, AttributeError, or any unhandled exception → let the exception propagate (do NOT catch it with a broad `except Exception` that swallows it). The traceback is more useful than a silent demo.
 - If any step fails → log the failure to stderr and continue with remaining steps where possible; never substitute fake/mock data for real Jira results.
 - Never create a `demo_triage.py`, `demo_output.py`, or any simulation script. Real actions from real Jira API only.
-- If the real triage produces no assignments and no stale tickets, that IS a valid result — report it honestly in Channel 1 ("No new tickets in filter 55922"). Do not invent example output to make the run look more productive.
+- If the real triage produces no assignments and no stale tickets, that IS a valid result — report it honestly in Channel 1 ("No new Serraview tickets in filter 55922"). Do not invent example output to make the run look more productive. **Do NOT widen the scope to pull non-Serraview CM tickets just to have something to show.**
 
 **Script output — stdout safety rules:**
 The agent runtime parses the script's stdout as a JSON stream. Certain output patterns crash the runtime with `json: cannot unmarshal string into Go value of type map[string]interface {}`. To prevent this:
@@ -438,30 +463,88 @@ Flag anyone at or over their `maxLoad`. Track `obsCount` (excluded under-observa
 
 ### Step 3: Fetch Tickets from Filter 55922
 
-Get all tickets from filter 55922.
+Get all tickets from filter 55922. **Every ticket processed by this skill MUST belong to the Serraview category. This is a hard scope boundary — never process tickets outside it.**
 
-**Use `jira_search("filter=55922")` (MCP-first wrapper).** If MCP is unavailable, falls back to `POST /rest/api/3/search/jql` with the two-call pattern below.
+#### Mandatory Serraview scope JQL (hardcoded fallback)
 
-**Two-call pattern (REST fallback only)** — only `["summary", "assignee"]` are safe in the search `fields` array on this tenant; all other fields cause 400 errors. Get keys from search, then fetch per-issue detail separately:
+```
+SV_SCOPE_JQL = (
+    'project = CM'
+    ' AND status = "New Issue"'
+    ' AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview")'
+    ' AND priority != Highest'   # S1 excluded — handled by separate trigger
+    ' ORDER BY created ASC'
+)
+```
+
+This JQL is the guaranteed Serraview-scoped query. Use it whenever filter 55922 is unavailable or returns zero results unexpectedly.
+
+#### Fetch strategy — filter first, explicit JQL fallback
 
 ```python
-# Step 1: Get all ticket keys and assignee from filter (REST fallback)
-# Always include fields: ["summary", "assignee"] — omitting returns only id with no key
-search_payload = {"jql": "filter=55922", "maxResults": 200, "fields": ["summary", "assignee"]}
-# Paginate using nextPageToken / isLast
-# Each issue object will have: issue["key"], issue["fields"]["summary"], issue["fields"]["assignee"]
+SERRAVIEW_SCOPE_JQL = (
+    'project = CM AND status = "New Issue"'
+    ' AND "Category and Sub-category[Select List (cascading)]" IN cascadeOption("Serraview")'
+    ' AND priority != Highest ORDER BY created ASC'
+)
 
-# Step 2: For each key, fetch full details
-# Use jira_get_issue(key) — MCP first, REST fallback
-# REST fallback: GET /rest/api/3/issue/{key}?fields=summary,assignee,priority,labels,description,status,updated
+def fetch_filter_tickets():
+    """
+    Primary: filter=55922 via MCP or REST.
+    Fallback: explicit Serraview-scoped JQL if filter returns 0 results or errors.
+    NEVER fall back to an unscoped CM query.
+    """
+    issues = []
+    try:
+        issues = jira_search("filter=55922")
+        print(f"Filter 55922 returned {len(issues)} tickets", file=sys.stderr)
+    except Exception as e:
+        print(f"Filter 55922 failed ({e}), switching to explicit Serraview JQL", file=sys.stderr)
+
+    if not issues:
+        # Filter returned empty or failed — use the explicit scope JQL
+        # This is safe: the JQL is hardcoded to Serraview category only
+        print("Using explicit Serraview-scoped JQL fallback", file=sys.stderr)
+        issues = jira_search(SERRAVIEW_SCOPE_JQL)
+        print(f"Explicit JQL returned {len(issues)} tickets", file=sys.stderr)
+
+    # ── POST-FETCH SCOPE GUARD ─────────────────────────────────────────────
+    # Even if filter 55922 returned results, verify each ticket belongs to Serraview.
+    # This guards against filter misconfiguration or MCP returning stale/wrong scope.
+    safe_issues = []
+    rejected = []
+    for issue in issues:
+        key = issue.get("key", "UNKNOWN")
+        detail = jira_get_issue(key, fields="summary,assignee,priority,labels,description,status,updated,customfield_10188")
+        category_field = detail.get("fields", {}).get("customfield_10188")  # Category cascade field
+        category_str = str(category_field).lower() if category_field else ""
+        if "serraview" not in category_str:
+            # Double-check via summary/description keyword as a secondary signal
+            summary = detail.get("fields", {}).get("summary", "").lower()
+            desc = str(detail.get("fields", {}).get("description", "") or "").lower()
+            sv_keywords = ["serraview", "svlive", "sv-", "serra"]
+            if not any(kw in summary or kw in desc for kw in sv_keywords):
+                print(f"SCOPE REJECT: {key} does not belong to Serraview — skipping", file=sys.stderr)
+                rejected.append(key)
+                continue
+        safe_issues.append((key, detail))
+
+    if rejected:
+        print(f"Scope guard rejected {len(rejected)} non-Serraview tickets: {rejected}", file=sys.stderr)
+
+    return safe_issues
 ```
+
+> **Critical:** If `fetch_filter_tickets()` returns zero tickets after the scope guard, that is a valid result — report "No new Serraview tickets in filter 55922" in Channel 1. Do NOT widen the scope to include non-Serraview tickets.
+
+**Two-call pattern (REST fallback within `jira_search`)** — only `["summary", "assignee"]` are safe in the search `fields` array on this tenant; all other fields cause 400 errors. Get keys from search, then fetch per-issue detail separately via `jira_get_issue()`.
 
 **Bucket 1 — Already Assigned** (assignee IS NOT EMPTY in the fetched issue detail):
 - DO NOT reassign
 - Call `jira_transition(issueKey, "31")` to move to Approved (MCP first, REST fallback)
 - Output: Auto-Transitioned (Already Assigned)
 
-> Filter 55922 targets "New Issue" status, non-S1 tickets. S1 tickets are handled by a separate event-based trigger and will not appear here.
+> Filter 55922 targets "New Issue" status, non-S1 Serraview tickets. S1 tickets are handled by a separate event-based trigger and will not appear here. If a non-Serraview ticket somehow passes the scope guard, skip it and log to Skipped with reason "Out of scope — not Serraview".
 
 **Bucket 2 & 3 — Unassigned** (assignee IS EMPTY or null):
 For each ticket:
@@ -505,12 +588,13 @@ Call `jira_add_label(issueKey, "ClopsManualTriage")` (MCP first, REST fallback).
 Do NOT assign or transition.
 
 **Routable tickets — always assign BEFORE transitioning:**
-1. Call `jira_assign(issueKey, account_id)` — use the accountId from `references/team-config.md` (MCP first: `Atlassian:editJiraIssue`; REST fallback: `PUT /rest/api/3/issue/{key}/assignee`)
-2. Call `jira_transition(issueKey, "31")` (MCP first: `Atlassian:transitionJiraIssue`; REST fallback: `POST /rest/api/3/issue/{key}/transitions`)
+1. Call `jira_assign(issueKey, account_id)` — always uses `PUT /rest/api/3/issue/{key}/assignee` (REST only; MCP silently fails for assignee on this tenant)
+2. `jira_assign()` internally verifies the assignee persisted via a follow-up REST GET; if not, it raises `RuntimeError` — catch this, log to Skipped (API Error), and skip to the next ticket without transitioning
+3. Call `jira_transition(issueKey, "31")` — attempts MCP first (`Atlassian:transitionJiraIssue`), falls back to REST. The wrapper pre-checks that assignee is set; it will refuse to transition and raise if the field is empty (guards against the MCP assign silent-failure scenario)
 
-> Order matters: assign first, then transition. This ensures the ticket is never briefly in Approved status without an assignee.
+> Order matters: assign → verify → transition. **Never call the transition before confirming the assignee field is non-empty.** `Atlassian:transitionJiraIssue` returns `"Field Assignee is required"` if assignee is unset, which is misleading — the real fix is always to repair the assignment first.
 
-If the assignment call fails (MCP or REST): do not transition. Log the error, add to Skipped (API Error), continue.
+If the assignment call fails: do not transition. Log the error, add to Skipped (API Error), continue.
 
 ### Step 6: Output Summary
 
@@ -534,6 +618,9 @@ If the assignment call fails (MCP or REST): do not transition. Log the error, ad
 
 ### Updated Workload
 | Person | Before | After | Obs (+N) | Status |
+
+### Skipped (Out of Scope)
+| Ticket | Summary | Reason |
 
 ### Skipped
 | Ticket | Reason |
@@ -729,6 +816,7 @@ See `references/notifications.md` for exact Python Adaptive Card template.
 ## Key Rules
 
 - AUTO-ASSIGNS tickets — no confirmation required
+- **Serraview scope is mandatory** — only process tickets where Category = Serraview. If filter 55922 is unavailable, fall back to the hardcoded `SERRAVIEW_SCOPE_JQL` in Step 3. Never fall back to unscoped `project = CM` queries.
 - Filter 55922 targets "New Issue" status; S1 tickets are excluded (handled by separate trigger)
 - Bucket 1: already assigned → transition only (no reassignment)
 - Bucket 2: unassigned, routable → **assign first, then transition**
